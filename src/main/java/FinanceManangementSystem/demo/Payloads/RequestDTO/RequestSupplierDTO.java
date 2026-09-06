@@ -38,7 +38,7 @@ public class RequestSupplierDTO {
 
 
     @Pattern(
-            regexp = "^[6-9][0-9]{9}$",
+            regexp = "^$|^[6-9][0-9]{9}$",
             message = "Alternate mobile number must be a valid 10-digit Indian mobile number"
     )
     private String alternateMobileNumber;
@@ -53,7 +53,7 @@ public class RequestSupplierDTO {
 
 
     @Pattern(
-            regexp = "^[0-9A-Z]{15}$",
+            regexp = "^$|^[0-9A-Za-z]{15}$",
             message = "Invalid GST number"
     )
     private String gstNumber;

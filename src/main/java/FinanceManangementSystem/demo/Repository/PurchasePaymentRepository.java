@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,5 +43,21 @@ public interface PurchasePaymentRepository
 
     boolean existsByReferenceNumber(
             String referenceNumber
+    );
+
+    boolean existsByPurchase(
+            Purchase purchase
+    );
+
+    @Query("SELECT COALESCE(SUM(p.amountPaid), 0) FROM PurchasePayment p WHERE p.user = :user")
+    BigDecimal sumTotalPaidByUser(
+            @Param("user") User user
+    );
+
+    @Query("SELECT COALESCE(SUM(p.amountPaid), 0) FROM PurchasePayment p WHERE p.user = :user AND p.paymentDate BETWEEN :fromDate AND :toDate")
+    BigDecimal sumTotalPaidByUserAndDateRange(
+            @Param("user") User user,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
     );
 }

@@ -213,19 +213,25 @@ public class StockController {
             APIResponse<List<ResponseStockDTO>>
             >
     searchStock(
-            @RequestParam String rawMaterial
+            @RequestParam(required = false) String rawMaterial,
+            @RequestParam(required = false) String query
     ) {
 
         log.info(
                 "CONTROLLER - request came in searchStock..."
         );
 
+        String searchTerm = (query != null && !query.isBlank())
+                ? query
+                : (rawMaterial != null ? rawMaterial : "");
+
         log.info(
-                "CONTROLLER - calling stock service..."
+                "CONTROLLER - calling stock service with searchTerm: {}...",
+                searchTerm
         );
 
         List<ResponseStockDTO> response =
-                stockService.searchStock(rawMaterial);
+                stockService.searchStock(searchTerm);
 
         log.info(
                 "CONTROLLER - stocks searched successfully..."

@@ -16,6 +16,14 @@ import FinanceManangementSystem.demo.Repository.PurchaseRepository;
 import FinanceManangementSystem.demo.Repository.SaleRepository;
 import FinanceManangementSystem.demo.Service.ExpenseServiceInterface;
 import FinanceManangementSystem.demo.Service.ProfitDistributionServiceInterface;
+import FinanceManangementSystem.demo.Model.PartnerProfitWithdrawal;
+import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestProfitWithdrawalDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.LiveProfitSharingOverviewDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseProfitWithdrawalDTO;
+import FinanceManangementSystem.demo.Repository.ExpenseRepository;
+import FinanceManangementSystem.demo.Repository.PartnerProfitWithdrawalRepository;
+import FinanceManangementSystem.demo.Repository.PurchasePaymentRepository;
+import FinanceManangementSystem.demo.Repository.SalePaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
@@ -25,10 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -40,6 +45,10 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
 
     private final PurchaseRepository purchaseRepo;
 
+    private final SalePaymentRepository salePaymentRepo;
+
+    private final PurchasePaymentRepository purchasePaymentRepo;
+
     private final ExpenseServiceInterface expenseService;
 
     private final PartnerRepository partnerRepo;
@@ -48,10 +57,103 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
 
     private final PartnerProfitShareRepository shareRepo;
 
+    private final PartnerProfitWithdrawalRepository withdrawalRepo;
+
+    private final ExpenseRepository expenseRepo;
+
     private final CurrentUserService currentUserService;
 
     private final ModelMapper modelMapper;
 
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseProfitDistributionDTO previewDistribution(RequestProfitDistributionDTO dto) {
+        log.info("SERVICE - request came in previewDistribution...");
+
+        LocalDate from = dto.getFromDate();
+        LocalDate to = dto.getToDate();
+
+        if (from.isAfter(to)) {
+            throw new InvalidRequestException("fromDate must be before or equal to toDate");
+        }
+
+        User currentUser = currentUserService.getCurrentUser();
+
+        Optional<ProfitDistribution> existingOpt = distributionRepo.findByUserAndFromDateAndToDate(currentUser, from, to);
+        boolean isRecalculation = existingOpt.isPresent();
+
+        List<Partner> activePartners = partnerRepo.findByUserAndIsActiveTrue(currentUser);
+
+        if (activePartners.isEmpty()) {
+            throw new InvalidRequestException("No active partners to distribute profit");
+        }
+
+        BigDecimal activeSum = partnerRepo.sumActiveSharePercentage(currentUser);
+        if (activeSum == null) activeSum = BigDecimal.ZERO;
+
+        if (activeSum.compareTo(new BigDecimal("100.00")) != 0) {
+            throw new InvalidRequestException("Active partner shares must total exactly 100% before distribution");
+        }
+
+        // Compute totals based on actual customer money received and supplier money paid
+        BigDecimal totalRevenue = salePaymentRepo.sumTotalReceivedByUserAndDateRange(currentUser, from, to);
+        if (totalRevenue == null) totalRevenue = BigDecimal.ZERO;
+
+        BigDecimal totalPurchaseCost = purchasePaymentRepo.sumTotalPaidByUserAndDateRange(currentUser, from, to);
+        if (totalPurchaseCost == null) totalPurchaseCost = BigDecimal.ZERO;
+
+        BigDecimal totalExpenses = expenseService.getTotalExpenses(currentUser, from, to);
+        if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
+
+        BigDecimal netProfit = totalRevenue.subtract(totalPurchaseCost).subtract(totalExpenses);
+        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
+            netProfit = BigDecimal.ZERO;
+        }
+
+        List<Partner> sortedPartners = new ArrayList<>(activePartners);
+        sortedPartners.sort(Comparator.comparing(p -> p.getPublicId().toString()));
+
+        List<ResponseProfitDistributionDTO.PartnerShareDetails> shareDetails = new ArrayList<>();
+        BigDecimal sumRounded = BigDecimal.ZERO;
+
+        for (Partner partner : sortedPartners) {
+            BigDecimal rawShare = netProfit.multiply(partner.getSharePercentage())
+                    .divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
+            BigDecimal rounded = rawShare.setScale(2, RoundingMode.HALF_UP);
+
+            sumRounded = sumRounded.add(rounded);
+
+            ResponseProfitDistributionDTO.PartnerShareDetails pd = new ResponseProfitDistributionDTO.PartnerShareDetails();
+            pd.setPartnerPublicId(partner.getPublicId());
+            pd.setPartnerName(partner.getPartnerName());
+            pd.setSharePercentageAtDistribution(partner.getSharePercentage());
+            pd.setShareAmount(rounded);
+
+            shareDetails.add(pd);
+        }
+
+        BigDecimal remainder = netProfit.subtract(sumRounded);
+        if (remainder.compareTo(BigDecimal.ZERO) != 0 && !shareDetails.isEmpty()) {
+            ResponseProfitDistributionDTO.PartnerShareDetails lastPd = shareDetails.get(shareDetails.size() - 1);
+            lastPd.setShareAmount(lastPd.getShareAmount().add(remainder));
+        }
+
+        ResponseProfitDistributionDTO resp = new ResponseProfitDistributionDTO();
+        resp.setPublicId(existingOpt.map(ProfitDistribution::getPublicId).orElseGet(UUID::randomUUID));
+        resp.setFromDate(from);
+        resp.setToDate(to);
+        resp.setTotalRevenue(totalRevenue);
+        resp.setTotalPurchaseCost(totalPurchaseCost);
+        resp.setTotalExpenses(totalExpenses);
+        resp.setNetProfit(netProfit);
+        resp.setCreatedAt(existingOpt.map(ProfitDistribution::getCreatedAt).orElseGet(java.time.LocalDateTime::now));
+        resp.setUpdatedAt(existingOpt.map(ProfitDistribution::getUpdatedAt).orElse(null));
+        resp.setIsRecalculation(isRecalculation);
+        resp.setShares(shareDetails);
+
+        return resp;
+    }
 
     @Override
     @Transactional
@@ -67,9 +169,8 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
 
         User currentUser = currentUserService.getCurrentUser();
 
-        if (distributionRepo.existsByUserAndFromDateAndToDate(currentUser, from, to)) {
-            throw new InvalidRequestException("Profit already distributed for this period");
-        }
+        Optional<ProfitDistribution> existingOpt = distributionRepo.findByUserAndFromDateAndToDate(currentUser, from, to);
+        boolean isRecalculation = existingOpt.isPresent();
 
         List<Partner> activePartners = partnerRepo.findByUserAndIsActiveTrue(currentUser);
 
@@ -84,16 +185,12 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
             throw new InvalidRequestException("Active partner shares must total exactly 100% before distribution");
         }
 
-        // Compute totals
-        BigDecimal totalRevenue = saleRepo.findByUserAndSaleDateBetween(currentUser, from, to)
-                .stream()
-                .map(s -> s.getTotalAmount() == null ? BigDecimal.ZERO : s.getTotalAmount())
-                .reduce(BigDecimal.ZERO, (acc, value) -> acc.add(value == null ? BigDecimal.ZERO : value));
+        // Compute totals based on actual customer money received and supplier money paid
+        BigDecimal totalRevenue = salePaymentRepo.sumTotalReceivedByUserAndDateRange(currentUser, from, to);
+        if (totalRevenue == null) totalRevenue = BigDecimal.ZERO;
 
-        BigDecimal totalPurchaseCost = purchaseRepo.findByUserAndPurchaseDateBetween(currentUser, from, to)
-                .stream()
-                .map(p -> p.getTotalAmount() == null ? BigDecimal.ZERO : p.getTotalAmount())
-                .reduce(BigDecimal.ZERO, (acc, value) -> acc.add(value == null ? BigDecimal.ZERO : value));
+        BigDecimal totalPurchaseCost = purchasePaymentRepo.sumTotalPaidByUserAndDateRange(currentUser, from, to);
+        if (totalPurchaseCost == null) totalPurchaseCost = BigDecimal.ZERO;
 
         BigDecimal totalExpenses = expenseService.getTotalExpenses(currentUser, from, to);
         if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
@@ -104,17 +201,34 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
             netProfit = BigDecimal.ZERO;
         }
 
-        // Persist distribution record
-        ProfitDistribution dist = new ProfitDistribution();
-        dist.setUser(currentUser);
-        dist.setFromDate(from);
-        dist.setToDate(to);
-        dist.setTotalRevenue(totalRevenue);
-        dist.setTotalPurchaseCost(totalPurchaseCost);
-        dist.setTotalExpenses(totalExpenses);
-        dist.setNetProfit(netProfit);
+        ProfitDistribution dist;
+        if (isRecalculation) {
+            dist = existingOpt.get();
+            dist.setTotalRevenue(totalRevenue);
+            dist.setTotalPurchaseCost(totalPurchaseCost);
+            dist.setTotalExpenses(totalExpenses);
+            dist.setNetProfit(netProfit);
+            dist.setUpdatedAt(java.time.LocalDateTime.now());
+            dist = distributionRepo.save(dist);
 
-        dist = distributionRepo.save(dist);
+            // Clean up old shares to prevent duplicate allocations
+            List<PartnerProfitShare> oldShares = shareRepo.findByDistribution(dist);
+            if (!oldShares.isEmpty()) {
+                shareRepo.deleteAll(oldShares);
+                shareRepo.flush();
+            }
+        } else {
+            dist = new ProfitDistribution();
+            dist.setUser(currentUser);
+            dist.setFromDate(from);
+            dist.setToDate(to);
+            dist.setTotalRevenue(totalRevenue);
+            dist.setTotalPurchaseCost(totalPurchaseCost);
+            dist.setTotalExpenses(totalExpenses);
+            dist.setNetProfit(netProfit);
+            dist.setUpdatedAt(java.time.LocalDateTime.now());
+            dist = distributionRepo.save(dist);
+        }
 
         // Sort partners deterministically by publicId string
         List<Partner> sortedPartners = new ArrayList<>(activePartners);
@@ -176,6 +290,8 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         resp.setTotalExpenses(dist.getTotalExpenses());
         resp.setNetProfit(dist.getNetProfit());
         resp.setCreatedAt(dist.getCreatedAt());
+        resp.setUpdatedAt(dist.getUpdatedAt());
+        resp.setIsRecalculation(isRecalculation);
         resp.setShares(shareDetails);
 
         return resp;
@@ -196,6 +312,8 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         }
 
         ResponseProfitDistributionDTO resp = modelMapper.map(dist, ResponseProfitDistributionDTO.class);
+        resp.setUpdatedAt(dist.getUpdatedAt());
+        resp.setIsRecalculation(dist.getUpdatedAt() != null);
 
         List<PartnerProfitShare> shares = shareRepo.findByDistribution(dist);
 
@@ -220,13 +338,15 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
 
         List<ProfitDistribution> dists;
         if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
-            dists = distributionRepo.findAllByOrderByToDateDesc();
+            dists = distributionRepo.findAllOrderByLatestActivity();
         } else {
-            dists = distributionRepo.findByUserOrderByToDateDesc(currentUser);
+            dists = distributionRepo.findByUserOrderByLatestActivity(currentUser);
         }
 
         return dists.stream().map(dist -> {
             ResponseProfitDistributionDTO resp = modelMapper.map(dist, ResponseProfitDistributionDTO.class);
+            resp.setUpdatedAt(dist.getUpdatedAt());
+            resp.setIsRecalculation(dist.getUpdatedAt() != null);
             List<PartnerProfitShare> shares = shareRepo.findByDistribution(dist);
             List<ResponseProfitDistributionDTO.PartnerShareDetails> details = shares.stream().map(s -> {
                 ResponseProfitDistributionDTO.PartnerShareDetails pd = new ResponseProfitDistributionDTO.PartnerShareDetails();
@@ -271,11 +391,11 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         ProfitDistribution dist;
 
         if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
-            dist = distributionRepo.findFirstByOrderByToDateDesc()
-                    .orElse(null);
+            List<ProfitDistribution> list = distributionRepo.findAllOrderByLatestActivity();
+            dist = list.isEmpty() ? null : list.get(0);
         } else {
-            dist = distributionRepo.findFirstByUserOrderByToDateDesc(currentUser)
-                    .orElse(null);
+            List<ProfitDistribution> list = distributionRepo.findByUserOrderByLatestActivity(currentUser);
+            dist = list.isEmpty() ? null : list.get(0);
         }
 
         if (dist == null) {
@@ -297,5 +417,181 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
             sum = shareRepo.sumLifetimeEarningsByPartnerAndUser(partnerPublicId, currentUser);
         }
         return sum == null ? BigDecimal.ZERO : sum;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LiveProfitSharingOverviewDTO getLiveProfitOverview() {
+        log.info("SERVICE - request came in getLiveProfitOverview...");
+        User currentUser = currentUserService.getCurrentUser();
+
+        BigDecimal totalReceived = salePaymentRepo.sumTotalReceivedByUser(currentUser);
+        if (totalReceived == null) totalReceived = BigDecimal.ZERO;
+
+        BigDecimal totalPaid = purchasePaymentRepo.sumTotalPaidByUser(currentUser);
+        if (totalPaid == null) totalPaid = BigDecimal.ZERO;
+
+        BigDecimal totalExpenses = expenseRepo.sumTotalExpensesByUserAndDateRange(currentUser, null, null);
+        if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
+
+        BigDecimal netProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
+        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
+            netProfit = BigDecimal.ZERO;
+        }
+
+        List<Partner> partners = partnerRepo.findByUser(currentUser);
+        partners.sort(Comparator.comparing(Partner::getIsActive, Comparator.reverseOrder())
+                .thenComparing(Partner::getPartnerName, String.CASE_INSENSITIVE_ORDER));
+
+        List<LiveProfitSharingOverviewDTO.PartnerLiveProfitDTO> partnerDTOs = new ArrayList<>();
+        BigDecimal totalEarnedAll = BigDecimal.ZERO;
+        BigDecimal totalWithdrawnAll = BigDecimal.ZERO;
+        BigDecimal totalRemainingAll = BigDecimal.ZERO;
+
+        for (Partner partner : partners) {
+            BigDecimal earned = calculateLiveEarnedProfit(partner, netProfit);
+            BigDecimal withdrawn = withdrawalRepo.sumWithdrawnByPartnerAndUser(partner, currentUser);
+            if (withdrawn == null) withdrawn = BigDecimal.ZERO;
+
+            BigDecimal remaining = earned.subtract(withdrawn);
+            if (remaining.compareTo(BigDecimal.ZERO) < 0) {
+                remaining = BigDecimal.ZERO;
+            }
+
+            totalEarnedAll = totalEarnedAll.add(earned);
+            totalWithdrawnAll = totalWithdrawnAll.add(withdrawn);
+            totalRemainingAll = totalRemainingAll.add(remaining);
+
+            LiveProfitSharingOverviewDTO.PartnerLiveProfitDTO pDto = new LiveProfitSharingOverviewDTO.PartnerLiveProfitDTO();
+            pDto.setPartnerPublicId(partner.getPublicId());
+            pDto.setPartnerName(partner.getPartnerName());
+            pDto.setPartnerEmail(partner.getEmail());
+            pDto.setPartnerPhone(partner.getMobileNumber());
+            pDto.setSharePercentage(partner.getSharePercentage());
+            pDto.setActive(Boolean.TRUE.equals(partner.getIsActive()));
+            pDto.setTotalEarnedProfit(earned);
+            pDto.setTotalWithdrawnProfit(withdrawn);
+            pDto.setRemainingProfitAvailable(remaining);
+
+            partnerDTOs.add(pDto);
+        }
+
+        LiveProfitSharingOverviewDTO overview = new LiveProfitSharingOverviewDTO();
+        overview.setTotalMoneyReceived(totalReceived);
+        overview.setTotalMoneyPaid(totalPaid);
+        overview.setTotalSalesRevenue(totalReceived);
+        overview.setTotalPurchasesCost(totalPaid);
+        overview.setTotalExpenses(totalExpenses);
+        overview.setNetProfit(netProfit);
+        overview.setTotalDistributedProfit(totalEarnedAll);
+        overview.setTotalProfitWithdrawn(totalWithdrawnAll);
+        overview.setTotalRemainingProfit(totalRemainingAll);
+        overview.setPartners(partnerDTOs);
+        overview.setLatestDistribution(getLatestDistribution());
+
+        return overview;
+    }
+
+    @Override
+    @Transactional
+    public ResponseProfitWithdrawalDTO recordWithdrawal(RequestProfitWithdrawalDTO dto) {
+        log.info("SERVICE - request came in recordWithdrawal for partner {}", dto.getPartnerPublicId());
+        User currentUser = currentUserService.getCurrentUser();
+
+        Partner partner = partnerRepo.findByUserAndPublicId(currentUser, dto.getPartnerPublicId())
+                .orElseThrow(() -> new ResourceNotFoundException("Partner not found"));
+
+        // Compute current live profit context based on actual money received and paid
+        BigDecimal totalReceived = salePaymentRepo.sumTotalReceivedByUser(currentUser);
+        if (totalReceived == null) totalReceived = BigDecimal.ZERO;
+
+        BigDecimal totalPaid = purchasePaymentRepo.sumTotalPaidByUser(currentUser);
+        if (totalPaid == null) totalPaid = BigDecimal.ZERO;
+
+        BigDecimal totalExpenses = expenseRepo.sumTotalExpensesByUserAndDateRange(currentUser, null, null);
+        if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
+
+        BigDecimal netProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
+        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
+            netProfit = BigDecimal.ZERO;
+        }
+
+        BigDecimal totalEarned = calculateLiveEarnedProfit(partner, netProfit);
+        BigDecimal totalWithdrawn = withdrawalRepo.sumWithdrawnByPartnerAndUser(partner, currentUser);
+        if (totalWithdrawn == null) totalWithdrawn = BigDecimal.ZERO;
+
+        BigDecimal available = totalEarned.subtract(totalWithdrawn);
+        if (available.compareTo(BigDecimal.ZERO) < 0) {
+            available = BigDecimal.ZERO;
+        }
+
+        if (dto.getAmount() == null || dto.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidRequestException("Withdrawal amount must be greater than 0");
+        }
+
+        if (dto.getAmount().compareTo(available) > 0) {
+            throw new InvalidRequestException("Withdrawal amount (" + dto.getAmount() + ") cannot exceed available profit (" + available + ")");
+        }
+
+        BigDecimal remainingAfter = available.subtract(dto.getAmount());
+
+        PartnerProfitWithdrawal withdrawal = new PartnerProfitWithdrawal();
+        withdrawal.setUser(currentUser);
+        withdrawal.setPartner(partner);
+        withdrawal.setWithdrawalDate(dto.getWithdrawalDate());
+        withdrawal.setAmount(dto.getAmount());
+        withdrawal.setAvailableBeforeWithdrawal(available);
+        withdrawal.setRemainingAfterWithdrawal(remainingAfter);
+        withdrawal.setPaymentMethod(dto.getPaymentMethod() != null ? dto.getPaymentMethod().trim() : null);
+        withdrawal.setReferenceNumber(dto.getReferenceNumber() != null ? dto.getReferenceNumber().trim() : null);
+        withdrawal.setNotes(dto.getNotes() != null ? dto.getNotes().trim() : null);
+
+        withdrawal = withdrawalRepo.save(withdrawal);
+
+        return mapToWithdrawalResponse(withdrawal);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ResponseProfitWithdrawalDTO> getWithdrawalHistory(LocalDate fromDate, LocalDate toDate) {
+        log.info("SERVICE - request came in getWithdrawalHistory...");
+        User currentUser = currentUserService.getCurrentUser();
+
+        List<PartnerProfitWithdrawal> list;
+        if (fromDate != null && toDate != null) {
+            if (fromDate.isAfter(toDate)) {
+                throw new InvalidRequestException("fromDate must be before or equal to toDate");
+            }
+            list = withdrawalRepo.findByUserAndWithdrawalDateBetweenOrderByWithdrawalDateDescCreatedAtDesc(currentUser, fromDate, toDate);
+        } else {
+            list = withdrawalRepo.findByUserOrderByWithdrawalDateDescCreatedAtDesc(currentUser);
+        }
+
+        return list.stream().map(this::mapToWithdrawalResponse).collect(Collectors.toList());
+    }
+
+    private BigDecimal calculateLiveEarnedProfit(Partner partner, BigDecimal netProfit) {
+        if (Boolean.TRUE.equals(partner.getIsActive()) && partner.getSharePercentage() != null && netProfit.compareTo(BigDecimal.ZERO) > 0) {
+            return netProfit.multiply(partner.getSharePercentage())
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private ResponseProfitWithdrawalDTO mapToWithdrawalResponse(PartnerProfitWithdrawal w) {
+        ResponseProfitWithdrawalDTO resp = new ResponseProfitWithdrawalDTO();
+        resp.setPublicId(w.getPublicId());
+        resp.setPartnerPublicId(w.getPartner().getPublicId());
+        resp.setPartnerName(w.getPartner().getPartnerName());
+        resp.setPartnerSharePercentage(w.getPartner().getSharePercentage());
+        resp.setWithdrawalDate(w.getWithdrawalDate());
+        resp.setAmount(w.getAmount());
+        resp.setAvailableBeforeWithdrawal(w.getAvailableBeforeWithdrawal());
+        resp.setRemainingAfterWithdrawal(w.getRemainingAfterWithdrawal());
+        resp.setPaymentMethod(w.getPaymentMethod());
+        resp.setReferenceNumber(w.getReferenceNumber());
+        resp.setNotes(w.getNotes());
+        resp.setCreatedAt(w.getCreatedAt());
+        return resp;
     }
 }

@@ -1,0 +1,352 @@
+======================================================================
+ API TEST SUITE RUN: 20260903_002855
+======================================================================
+ Server: http://localhost:8080
+======================================================================
+
+[SETUP] Ensuring test client accounts exist...
+Logging in as ADMIN to acquire token...
+Admin token acquired successfully.
+Registering CLIENT 1 (testclient1@example.com)...
+{"code":"DUPLICATE_RESOURCE","message":"User already exists...","fieldErrors":null}Registering CLIENT 2 (testclient2@example.com)...
+{"code":"DUPLICATE_RESOURCE","message":"User already exists...","fieldErrors":null}Done! You can now log into the frontend with:
+Email: testclient1@example.com | testclient2@example.com
+Password: TestPass@123
+[SETUP] Done.
+
+[SETUP] Logging in as ADMIN, CLIENT1, CLIENT2...
+[SETUP] All tokens acquired.
+
+======================================================================
+  MODULE: Auth (/user/login, /user/refresh-token)
+======================================================================
+[PASS] [Auth] Login valid credentials -> 200
+[PASS] [Auth] Login wrong password -> 400
+[PASS] [Auth] Login non-existent email -> 401
+[PASS] [Auth] Login missing email and password -> 400
+[PASS] [Auth] Login malformed email format -> 400
+[PASS] [Auth] Login missing password field -> 400
+[PASS] [Auth] Refresh with garbage token -> 401
+[PASS] [Auth] Refresh missing refreshToken field -> 400
+[PASS] [Auth] Refresh with valid token -> 200
+
+======================================================================
+  MODULE: Admin (/admin/register, /admin/users)
+======================================================================
+[PASS] [Admin] Register as CLIENT (role check) -> 403
+[PASS] [Admin] List users as CLIENT (role check) -> 403
+[PASS] [Admin] Register no auth header -> 401
+[PASS] [Admin] List users no auth header -> 401
+[PASS] [Admin] List users garbage token -> 401
+[PASS] [Admin] Register empty body -> 400
+[PASS] [Admin] Register missing ownerName -> 400
+[PASS] [Admin] Register missing username -> 400
+[PASS] [Admin] Register missing email -> 400
+[PASS] [Admin] Register missing password -> 400
+[PASS] [Admin] Register missing mobileNumber -> 400
+[PASS] [Admin] Register missing userAddress -> 400
+[PASS] [Admin] Register weak password (no special/uppercase) -> 400
+[PASS] [Admin] Register invalid mobile (starts with 5) -> 400
+[PASS] [Admin] Register invalid mobile (9 digits) -> 400
+[PASS] [Admin] Register duplicate email (report actual status) -> 409
+       NOTE: Expected 409 for duplicate email - actual status above. Flag if 500.
+[PASS] [Admin] Register valid new user -> 200
+[PASS] [Admin] List users as ADMIN -> 200
+
+======================================================================
+  MODULE: Customer (/customer)
+======================================================================
+[PASS] [Customer] Get all - no auth -> 401
+[PASS] [Customer] Get all - garbage token -> 401
+[PASS] [Customer] Get by malformed UUID (not UUID) -> 400
+[PASS] [Customer] Get by malformed UUID as CLIENT -> 400
+[PASS] [Customer] Get non-existent UUID as ADMIN -> 404
+[PASS] [Customer] Get non-existent UUID as CLIENT -> 404
+[PASS] [Customer] Add customer valid - ADMIN -> 201
+[PASS] [Customer] Add customer valid - CLIENT1 -> 201
+[PASS] [Customer] Add customer valid - CLIENT2 -> 201
+[PASS] [Customer] Add customer empty body -> 400
+[PASS] [Customer] Add customer missing customerName -> 400
+[PASS] [Customer] Add customer missing mobileNumber -> 400
+[PASS] [Customer] Add customer invalid mobile (starts with 5) -> 400
+[PASS] [Customer] Add customer invalid GST format -> 400
+[PASS] [Customer] Add customer invalid pincode (5 digits) -> 400
+[PASS] [Customer] Add customer invalid email format -> 400
+[PASS] [Customer] Add customer duplicate mobile (same user) - report actual status -> 409
+       NOTE: Expected 409 for duplicate mobile - flag if 500.
+[PASS] [Customer] Get customer own record - CLIENT1 -> 200
+[PASS] [Customer] Isolation: CLIENT2 reads CLIENT1 customer -> 404
+[PASS] [Customer] Isolation: CLIENT2 updates CLIENT1 customer -> 404
+[PASS] [Customer] Deactivate own customer - CLIENT1 -> 200
+[PASS] [Customer] Deactivate already-inactive customer (idempotent check) -> 200
+[PASS] [Customer] Reactivate customer - CLIENT1 -> 200
+[PASS] [Customer] Reactivate already-active customer (idempotent check) -> 200
+
+======================================================================
+  MODULE: Supplier (/supplier)
+======================================================================
+[PASS] [Supplier] Get all - no auth -> 401
+[PASS] [Supplier] Get non-existent UUID -> 404
+[PASS] [Supplier] Get malformed UUID -> 400
+[PASS] [Supplier] Add supplier valid - ADMIN -> 201
+[PASS] [Supplier] Add supplier valid - CLIENT1 -> 201
+[PASS] [Supplier] Add supplier valid - CLIENT2 -> 201
+[PASS] [Supplier] Add supplier empty body -> 400
+[PASS] [Supplier] Add supplier missing supplierName -> 400
+[PASS] [Supplier] Add supplier missing mobileNumber -> 400
+[PASS] [Supplier] Add supplier invalid mobile (10 digits but starts with 1) -> 400
+[PASS] [Supplier] Add supplier invalid GST format -> 400
+[PASS] [Supplier] Add supplier duplicate mobile (same user) - report actual -> 409
+       NOTE: Expected 409 for duplicate mobile - flag if 500.
+[PASS] [Supplier] Isolation: CLIENT2 reads CLIENT1 supplier -> 404
+[PASS] [Supplier] Isolation: CLIENT2 updates CLIENT1 supplier -> 404
+[PASS] [Supplier] Deactivate own supplier - CLIENT1 -> 200
+[PASS] [Supplier] Deactivate already-inactive supplier (idempotent) -> 200
+[PASS] [Supplier] Reactivate supplier - CLIENT1 -> 200
+
+======================================================================
+  MODULE: Stock (/stock)
+======================================================================
+[PASS] [Stock] Get all stocks - no auth -> 401
+[PASS] [Stock] Get non-existent stock UUID -> 404
+[PASS] [Stock] Get stock malformed UUID -> 400
+[PASS] [Stock] Add stock valid - ADMIN -> 201
+[PASS] [Stock] Add stock valid - CLIENT1 -> 201
+[PASS] [Stock] Add stock valid - CLIENT2 -> 201
+[PASS] [Stock] Add stock empty body -> 400
+[PASS] [Stock] Add stock missing rawMaterial -> 400
+[PASS] [Stock] Add stock missing unit -> 400
+[PASS] [Stock] Add stock invalid unit enum (LB not in G|KG|TON) -> 400
+[PASS] [Stock] Add stock missing minimumStockLevel -> 400
+[PASS] [Stock] Add stock negative minimumStockLevel -> 400
+[PASS] [Stock] Search stock with param -> 200
+[PASS] [Stock] Search stock missing rawMaterial param -> 400
+[PASS] [Stock] Search stock empty string param (graceful behavior check) -> 200
+       NOTE: Empty search should return empty list or 400 - check above for 500.
+[PASS] [Stock] Isolation: CLIENT2 reads CLIENT1 stock -> 404
+[PASS] [Stock] Deactivate own stock - CLIENT1 -> 200
+[PASS] [Stock] Activate stock - CLIENT1 -> 200
+
+======================================================================
+  MODULE: StockTransaction (/stock-transaction)
+======================================================================
+[PASS] [StockTransaction] Get all - no auth -> 401
+[PASS] [StockTransaction] Get non-existent transaction UUID -> 404
+[PASS] [StockTransaction] Get malformed UUID -> 400
+[PASS] [StockTransaction] Create adjustment IN - CLIENT1 -> 201
+[PASS] [StockTransaction] Create adjustment OUT (within stock) - CLIENT1 -> 201
+[PASS] [StockTransaction] Adjustment OUT exceeds available stock (should be rejected) -> 409
+       NOTE: Expecting 409 for INSUFFICIENT_STOCK.
+[PASS] [StockTransaction] Create adjustment IN - ADMIN -> 201
+[PASS] [StockTransaction] Adjustment missing stockPublicId -> 400
+[PASS] [StockTransaction] Adjustment zero quantity -> 400
+[PASS] [StockTransaction] Adjustment negative quantity -> 400
+[PASS] [StockTransaction] Adjustment invalid transaction type enum -> 400
+[PASS] [StockTransaction] Adjustment non-existent stockPublicId -> 404
+[PASS] [StockTransaction] Isolation: CLIENT2 adjusts CLIENT1 stock -> 404
+[PASS] [StockTransaction] Stock tx date-range reversed (graceful - empty list check) -> 200
+       NOTE: Reversed date range should return empty list or 400, not 500.
+
+======================================================================
+  MODULE: Purchase (/purchase)
+======================================================================
+[PASS] [Purchase] Get all - no auth -> 401
+[PASS] [Purchase] Get non-existent purchase -> 404
+[PASS] [Purchase] Get malformed UUID -> 400
+[PASS] [Purchase] Add purchase valid - CLIENT1 -> 201
+[PASS] [Purchase] Add purchase valid - ADMIN -> 201
+[PASS] [Purchase] Add purchase empty body -> 400
+[PASS] [Purchase] Add purchase missing supplierPublicId -> 400
+[PASS] [Purchase] Add purchase non-existent supplierPublicId -> 404
+[PASS] [Purchase] Add purchase using another CLIENT's supplier -> 404
+[PASS] [Purchase] Add purchase weight=0 -> 400
+[PASS] [Purchase] Add purchase negative weight -> 400
+[PASS] [Purchase] Add purchase ratePerUnit=0 -> 400
+[PASS] [Purchase] Add purchase gstPercentage > 100 -> 400
+[PASS] [Purchase] Add purchase gstPercentage < 0 -> 400
+[PASS] [Purchase] Isolation: CLIENT2 reads CLIENT1 purchase -> 404
+[PASS] [Purchase] Purchase date range reversed (graceful - empty list or 400, not 500) -> 200
+       NOTE: Reversed purchase date range - check if 500.
+
+======================================================================
+  MODULE: PurchasePayment (/purchase-payment)
+======================================================================
+[PASS] [PurchasePayment] Get all - no auth -> 401
+[PASS] [PurchasePayment] Get non-existent payment -> 404
+[PASS] [PurchasePayment] Add purchase payment valid - CLIENT1 -> 201
+[PASS] [PurchasePayment] paymentNumber present in response -> PPY-2026-000004
+[PASS] [PurchasePayment] Add purchase payment with optional referenceNumber -> 201
+[PASS] [PurchasePayment] Add payment empty body -> 400
+[PASS] [PurchasePayment] Add payment missing purchasePublicId -> 400
+[PASS] [PurchasePayment] Add payment non-existent purchasePublicId -> 404
+[PASS] [PurchasePayment] Add payment amountPaid=0 -> 400
+[PASS] [PurchasePayment] Add payment negative amountPaid -> 400
+[PASS] [PurchasePayment] Add payment invalid paymentMode enum -> 400
+[PASS] [PurchasePayment] Add payment overpayment (exceeds total purchase amount) -> 400
+       NOTE: Overpayment - expected 400 (rejected). Flag if 200 (allowed) or 500. This is an ambiguous behavior decision.
+[PASS] [PurchasePayment] Isolation: CLIENT2 pays CLIENT1 purchase -> 404
+[PASS] [PurchasePayment] Add purchase payment valid - ADMIN -> 201
+
+======================================================================
+  MODULE: Sale (/sale)
+======================================================================
+[PASS] [Sale] Get all - no auth -> 401
+[PASS] [Sale] Get non-existent sale -> 404
+[PASS] [Sale] Get malformed UUID -> 400
+[PASS] [Sale] Add sale valid - CLIENT1 -> 201
+[PASS] [Sale] Add sale valid - ADMIN -> 201
+[PASS] [Sale] Add sale empty body -> 400
+[PASS] [Sale] Add sale missing customerPublicId -> 400
+[PASS] [Sale] Add sale non-existent customerPublicId -> 404
+[PASS] [Sale] Add sale using another CLIENT's customer -> 404
+[PASS] [Sale] Add sale weight=0 -> 400
+[PASS] [Sale] Add sale ratePerUnit=0 -> 400
+[PASS] [Sale] Add sale gstPercentage=150 (>100) -> 400
+[PASS] [Sale] Isolation: CLIENT2 reads CLIENT1 sale -> 404
+
+======================================================================
+  MODULE: SalePayment (/sale-payment)
+======================================================================
+[PASS] [SalePayment] Get all - no auth -> 401
+[PASS] [SalePayment] Get non-existent sale payment -> 404
+[PASS] [SalePayment] Add sale payment valid - CLIENT1 -> 201
+[PASS] [SalePayment] paymentNumber present in response -> REC-2026-000004
+[PASS] [SalePayment] Add sale payment valid - ADMIN -> 201
+[PASS] [SalePayment] Add sale payment empty body -> 400
+[PASS] [SalePayment] Add sale payment amountReceived=0 -> 400
+[PASS] [SalePayment] Add sale payment negative amountReceived -> 400
+[PASS] [SalePayment] Add sale payment invalid paymentMode enum -> 400
+[PASS] [SalePayment] Add sale payment overpayment -> 400
+       NOTE: Sale overpayment - check if allowed (200) or rejected (400). Flag if 500.
+[PASS] [SalePayment] Add sale payment non-existent salePublicId -> 404
+[PASS] [SalePayment] Isolation: CLIENT2 pays CLIENT1 sale -> 404
+
+======================================================================
+  MODULE: Expense (/expense)
+======================================================================
+[PASS] [Expense] Get all - no auth -> 401
+[PASS] [Expense] Get non-existent expense -> 404
+[PASS] [Expense] Get malformed UUID -> 400
+[PASS] [Expense] Add expense valid - CLIENT1 -> 201
+[PASS] [Expense] Add expense valid - ADMIN -> 201
+[PASS] [Expense] Add expense empty body -> 400
+[PASS] [Expense] Add expense missing category -> 400
+[PASS] [Expense] Add expense invalid category enum -> 400
+[PASS] [Expense] Add expense missing amount -> 400
+[PASS] [Expense] Add expense amount=0 -> 400
+[PASS] [Expense] Add expense negative amount -> 400
+[PASS] [Expense] Add expense missing description -> 400
+[PASS] [Expense] Add expense description too long (>255 chars) -> 400
+[PASS] [Expense] Expense date-range reversed (graceful - empty list or 400, not 500) -> 200
+       NOTE: Reversed expense date range - check if 500.
+[PASS] [Expense] Isolation: CLIENT2 reads CLIENT1 expense -> 404
+
+======================================================================
+  MODULE: Partner (/partner)
+======================================================================
+[PASS] [Partner] Get all - no auth -> 401
+[PASS] [Partner] Get non-existent partner -> 404
+[PASS] [Partner] Get malformed UUID -> 400
+[PASS] [Partner] Add partner valid (30%) - CLIENT1 -> 200
+[PASS] [Partner] Add partner valid (40%) - CLIENT1 -> 200
+[PASS] [Partner] Add partner valid (30% to reach 100%) - CLIENT1 -> 200
+[PASS] [Partner] Add partner valid (50%) - ADMIN -> 200
+[PASS] [Partner] Add partner valid (50% to reach 100%) - ADMIN -> 200
+[PASS] [Partner] Add partner empty body -> 400
+[PASS] [Partner] Add partner missing partnerName -> 400
+[PASS] [Partner] Add partner missing mobileNumber -> 400
+[PASS] [Partner] Add partner missing sharePercentage -> 400
+[PASS] [Partner] Add partner sharePercentage=0 (<= 0) -> 400
+[PASS] [Partner] Add partner sharePercentage=101 (> 100) -> 400
+[PASS] [Partner] Add partner negative sharePercentage -> 400
+[PASS] [Partner] Add partner total share exceeds 100% (70+40=110) -> 400
+       NOTE: Total partner share check - expected 400. Flag if 500 or if allowed.
+[PASS] [Partner] Isolation: CLIENT2 reads CLIENT1 partner -> 404
+[PASS] [Partner] Deactivate partner - CLIENT1 -> 200
+[PASS] [Partner] Deactivate already-inactive partner (idempotent) -> 200
+[PASS] [Partner] Reactivate partner - CLIENT1 -> 200
+
+======================================================================
+  MODULE: ProfitDistribution (/profit-distribution)
+======================================================================
+[PASS] [ProfitDistribution] Get all - no auth -> 401
+[PASS] [ProfitDistribution] Get non-existent distribution -> 404
+[PASS] [ProfitDistribution] Distribute profits valid (CLIENT1) - zeroed result if no data -> 200
+       NOTE: Distribution with zero data - should return zeroed result not exception.
+[PASS] [ProfitDistribution] Distribute profits valid (ADMIN) -> 200
+[PASS] [ProfitDistribution] Distribute duplicate fromDate/toDate range (same user) -> 400
+       NOTE: Duplicate range - expected 400 clean error. Flag if 500.
+[PASS] [ProfitDistribution] Distribute fromDate after toDate -> 400
+       NOTE: Inverted date range - expected 400. Flag if 500 or if it succeeds.
+[PASS] [ProfitDistribution] Distribute missing fromDate and toDate -> 400
+[PASS] [ProfitDistribution] Distribute missing toDate -> 400
+[PASS] [ProfitDistribution] Isolation: CLIENT2 reads CLIENT1 distribution -> 404
+
+======================================================================
+  MODULE: Dashboard (/dashboard)
+======================================================================
+[PASS] [Dashboard] Dashboard - no auth -> 401
+[PASS] [Dashboard] Dashboard valid - CLIENT1 -> 200
+[PASS] [Dashboard] Dashboard valid - ADMIN -> 200
+
+======================================================================
+  MODULE: Report (/report)
+======================================================================
+[PASS] [Report] Sales report - no auth -> 401
+[PASS] [Report] Sales report valid - CLIENT1 -> 200
+[PASS] [Report] Sales report valid - ADMIN -> 200
+[PASS] [Report] Sales report reversed dates (empty or 400) -> 200
+       NOTE: Sales report reversed dates - should be empty list or 400, not 500.
+[PASS] [Report] Sales report missing from/to params -> 400
+[PASS] [Report] Sales report missing to param -> 400
+[PASS] [Report] Purchases report valid - CLIENT1 -> 200
+[PASS] [Report] Purchases report reversed dates -> 200
+       NOTE: Purchase report reversed dates - check if 500.
+[PASS] [Report] Purchases report missing params -> 400
+[PASS] [Report] Expenses report valid - CLIENT1 -> 200
+[PASS] [Report] Expenses report reversed dates -> 200
+       NOTE: Expense report reversed dates - check if 500.
+[PASS] [Report] Expenses report missing params -> 400
+[PASS] [Report] P&L report valid - CLIENT1 -> 200
+[PASS] [Report] P&L report reversed dates -> 200
+       NOTE: P&L report reversed dates - check if 500.
+[PASS] [Report] P&L report missing params -> 400
+[PASS] [Report] Stock report valid - CLIENT1 -> 200
+[PASS] [Report] Stock report valid - ADMIN -> 200
+[PASS] [Report] Stock report - no auth -> 401
+[PASS] [Report] Customer outstanding report - CLIENT1 -> 200
+[PASS] [Report] Supplier outstanding report - CLIENT1 -> 200
+
+======================================================================
+  FINAL TEST SUMMARY
+======================================================================
+  Auth                   PASS=9 | FAIL=0
+  Admin                  PASS=18 | FAIL=0
+  Customer               PASS=24 | FAIL=0
+  Supplier               PASS=17 | FAIL=0
+  Stock                  PASS=18 | FAIL=0
+  StockTransaction       PASS=14 | FAIL=0
+  Purchase               PASS=16 | FAIL=0
+  PurchasePayment        PASS=14 | FAIL=0
+  Sale                   PASS=13 | FAIL=0
+  SalePayment            PASS=12 | FAIL=0
+  Expense                PASS=15 | FAIL=0
+  Partner                PASS=20 | FAIL=0
+  ProfitDistribution     PASS=9 | FAIL=0
+  Dashboard              PASS=3 | FAIL=0
+  Report                 PASS=20 | FAIL=0
+----------------------------------------------------------------------
+  TOTAL                  PASS=222 | FAIL=0
+======================================================================
+
+Full log saved to: /f/Urvi Gondaliya/FinanceManagementSystem(Backend)/scripts/api-tests/results/20260903_002855.log
+
+======================================================================
+ POST-RUN NOTES
+======================================================================
+ - All test data prefixed with 'TEST_' for easy identification in UI.
+ - testclient1@example.com and testclient2@example.com may have new
+   customers/suppliers/stocks/expenses/partners created.
+ - Check for [FAIL] lines with '*** RAW 500 ***' for priority bugs.
+ - Check lines with 'NOTE:' for ambiguous behavior requiring decisions.
+======================================================================

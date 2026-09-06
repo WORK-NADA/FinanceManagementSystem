@@ -1,20 +1,29 @@
 package FinanceManangementSystem.demo.Payloads.ResponseDTO;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class ResponseSupplierOutstandingReportDTO {
 
     private UUID supplierPublicId;
     private String supplierName;
+    private String mobileNumber;
+    private String email;
+    private String city;
+    private BigDecimal totalBilled;
+    private BigDecimal totalPaid;
     private BigDecimal outstandingAmount;
-
-    public ResponseSupplierOutstandingReportDTO() {}
-
-    public UUID getSupplierPublicId() { return supplierPublicId; }
-    public void setSupplierPublicId(UUID supplierPublicId) { this.supplierPublicId = supplierPublicId; }
-    public String getSupplierName() { return supplierName; }
-    public void setSupplierName(String supplierName) { this.supplierName = supplierName; }
-    public BigDecimal getOutstandingAmount() { return outstandingAmount; }
-    public void setOutstandingAmount(BigDecimal outstandingAmount) { this.outstandingAmount = outstandingAmount; }
+    private LocalDate lastTransactionDate;
 }

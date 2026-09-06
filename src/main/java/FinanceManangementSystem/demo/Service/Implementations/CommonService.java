@@ -1,17 +1,25 @@
 package FinanceManangementSystem.demo.Service.Implementations;
 
+import FinanceManangementSystem.demo.Exceptions.DuplicateResourceException;
+import FinanceManangementSystem.demo.Exceptions.InvalidRequestException;
 import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
 import FinanceManangementSystem.demo.Model.User;
+import FinanceManangementSystem.demo.Model.UserAddress;
 import FinanceManangementSystem.demo.Repository.RefreshTokenRepository;
 import FinanceManangementSystem.demo.Repository.UserRepository;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestLoginDTO;
+import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestUpdateUserDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseLoginDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseUserAddressDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseUserDTO;
 import FinanceManangementSystem.demo.Security.JwtUtil;
 import FinanceManangementSystem.demo.Service.CommonServiceInterface;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.modelmapper.ModelMapper;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +40,12 @@ public class CommonService implements CommonServiceInterface {
     private final RefreshTokenService refreshTokenService;
 
     private final RefreshTokenRepository refreshRepo;
+
+    private final CurrentUserService currentUserService;
+
+    private final ModelMapper modelMapper;
+
+    private final BCryptPasswordEncoder passwordEncoder;
 
     @Transactional
     @Override
@@ -101,5 +115,73 @@ public class CommonService implements CommonServiceInterface {
                 )
 
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public ResponseUserDTO getCurrentUser() {
+        log.info("SERVICE - request came in getCurrentUser...");
+        User user = currentUserService.getCurrentUser();
+        ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
+        if (user.getAddress() != null) {
+            response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
+        }
+        log.info("SERVICE - current user fetched successfully...");
+        return response;
+    }
+
+    @Transactional
+    @Override
+    public ResponseUserDTO updateCurrentUser(RequestUpdateUserDTO dto) {
+        log.info("SERVICE - request came in updateCurrentUser...");
+        User user = currentUserService.getCurrentUser();
+
+        // Check for email or mobile conflict with other users
+        Optional<String> duplicate = userRepo.findByEmailOrContactAndNotPublicId(dto.getEmail(), dto.getMobileNumber(), user.getPublicId());
+        if (duplicate.isPresent()) {
+            throw new DuplicateResourceException("Another user with this email or mobile number already exists.");
+        }
+
+        // Handle password update if provided
+        if (dto.getNewPassword() != null && !dto.getNewPassword().trim().isEmpty()) {
+            if (dto.getCurrentPassword() == null || dto.getCurrentPassword().trim().isEmpty()) {
+                throw new InvalidRequestException("Current password is required to change password.");
+            }
+            if (!passwordEncoder.matches(dto.getCurrentPassword(), user.getPassword())) {
+                throw new InvalidRequestException("Current password is incorrect.");
+            }
+            user.setPassword(passwordEncoder.encode(dto.getNewPassword().trim()));
+            log.info("SERVICE - password updated for user: {}", user.getUsername());
+        }
+
+        user.setOwnerName(dto.getOwnerName());
+        user.setEmail(dto.getEmail());
+        user.setMobileNumber(dto.getMobileNumber());
+
+        if (dto.getUserAddress() != null) {
+            UserAddress address = user.getAddress();
+            if (address == null) {
+                address = new UserAddress();
+                address.setUser(user);
+                user.setAddress(address);
+            }
+            address.setHouseNo(dto.getUserAddress().getHouseNo());
+            address.setSocietyName(dto.getUserAddress().getSocietyName());
+            address.setArea(dto.getUserAddress().getArea());
+            address.setCity(dto.getUserAddress().getCity());
+            address.setPincode(dto.getUserAddress().getPincode());
+            address.setState(dto.getUserAddress().getState());
+            address.setCountry(dto.getUserAddress().getCountry() != null && !dto.getUserAddress().getCountry().isBlank()
+                    ? dto.getUserAddress().getCountry() : "India");
+        }
+
+        user = userRepo.save(user);
+        log.info("SERVICE - current user updated successfully...");
+
+        ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
+        if (user.getAddress() != null) {
+            response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
+        }
+        return response;
     }
 }

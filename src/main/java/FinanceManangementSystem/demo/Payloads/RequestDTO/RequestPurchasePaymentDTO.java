@@ -36,6 +36,12 @@ public class RequestPurchasePaymentDTO {
     private PaymentMode paymentMode;
 
     @Size(
+            max = 100,
+            message = "Reference number cannot exceed 100 characters"
+    )
+    private String referenceNumber;
+
+    @Size(
             max = 500,
             message = "Remarks cannot exceed 500 characters"
     )

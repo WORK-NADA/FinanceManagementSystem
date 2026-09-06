@@ -21,7 +21,16 @@ public interface ExpenseServiceInterface {
             UUID publicId
     );
 
-        org.springframework.data.domain.Page<ResponseExpenseDTO> getAllExpenses(org.springframework.data.domain.Pageable pageable);
+    default org.springframework.data.domain.Page<ResponseExpenseDTO> getAllExpenses(org.springframework.data.domain.Pageable pageable) {
+        return getAllExpenses(null, null, null, pageable);
+    }
+
+    org.springframework.data.domain.Page<ResponseExpenseDTO> getAllExpenses(
+            ExpenseCategory category,
+            LocalDate fromDate,
+            LocalDate toDate,
+            org.springframework.data.domain.Pageable pageable
+    );
 
     ResponseExpenseDTO updateExpense(
             UUID publicId,

@@ -100,8 +100,13 @@ public class Expense {
     private String expenseNumber;
 
     @Column(
+            name = "reference_number",
+            length = 100
+    )
+    private String referenceNumber;
+
+    @Column(
             name = "description",
-            nullable = false,
             length = 255
     )
     private String description;

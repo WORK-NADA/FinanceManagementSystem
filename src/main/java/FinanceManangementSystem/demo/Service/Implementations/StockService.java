@@ -2,15 +2,20 @@ package FinanceManangementSystem.demo.Service.Implementations;
 
 import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
 
+import FinanceManangementSystem.demo.Enums.UserRole;
 import FinanceManangementSystem.demo.Exceptions.DuplicateResourceException;
 import FinanceManangementSystem.demo.Exceptions.InvalidRequestException;
 import FinanceManangementSystem.demo.Exceptions.InvalidStateException;
 import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
+import FinanceManangementSystem.demo.Model.Purchase;
+import FinanceManangementSystem.demo.Model.Sale;
 import FinanceManangementSystem.demo.Model.Stock;
 import FinanceManangementSystem.demo.Model.User;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestMinimumStockLevelDTO;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestStockDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseStockDTO;
+import FinanceManangementSystem.demo.Repository.PurchaseRepository;
+import FinanceManangementSystem.demo.Repository.SaleRepository;
 import FinanceManangementSystem.demo.Repository.StockRepository;
 import FinanceManangementSystem.demo.Service.StockServiceInterface;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +36,10 @@ public class StockService
     private final StockRepository stockRepository;
 
     private final CurrentUserService currentUserService;
+
+    private final PurchaseRepository purchaseRepository;
+
+    private final SaleRepository saleRepository;
 
 
     // =========================================================
@@ -55,10 +64,9 @@ public class StockService
 
 
         if (stockRepository
-                .existsByUserAndRawMaterialIgnoreCaseAndUnit(
+                .existsByUserAndRawMaterialIgnoreCase(
                         currentUser,
-                        rawMaterial,
-                        dto.getUnit()
+                        rawMaterial
                 )) {
 
             log.info(
@@ -66,7 +74,7 @@ public class StockService
             );
 
             throw new DuplicateResourceException(
-                    "Stock already exists for this raw material and unit"
+                    "Stock already exists for this raw material"
             );
         }
 
@@ -244,34 +252,55 @@ public class StockService
 
 
     // =========================================================
-    // SEARCH STOCK
+    // SEARCH STOCK (BY RAW MATERIAL OR CURRENT QUANTITY)
     // =========================================================
 
     @Override
     @Transactional(readOnly = true)
     public List<ResponseStockDTO> searchStock(
-            String rawMaterial
+            String query
     ) {
 
         log.info(
-                "SERVICE - request came in searchStock..."
+                "SERVICE - request came in searchStock with query: {}",
+                query
         );
 
-
-        if (rawMaterial == null ||
-                rawMaterial.trim().isEmpty()) {
+        if (query == null ||
+                query.trim().isEmpty()) {
             return java.util.Collections.emptyList();
         }
 
-
         User currentUser = currentUserService.getCurrentUser();
+        String trimmed = query.trim();
 
-        return stockRepository
-                .findByUserAndRawMaterialContainingIgnoreCaseAndIsActiveTrue(
-                        currentUser,
-                        rawMaterial.trim()
-                )
-                .stream()
+        BigDecimal numericVal = null;
+        try {
+            numericVal = new BigDecimal(trimmed);
+        } catch (Exception ignored) {
+        }
+
+        List<Stock> allStocks = (currentUser.getRole() == UserRole.ADMIN)
+                ? stockRepository.findAll()
+                : stockRepository.findByUser(currentUser);
+
+        BigDecimal finalNumeric = numericVal;
+
+        return allStocks.stream()
+                .filter(stock -> {
+                    boolean matchesName = stock.getRawMaterial() != null
+                            && stock.getRawMaterial().toLowerCase().contains(trimmed.toLowerCase());
+                    boolean matchesQty = false;
+                    if (stock.getCurrentQuantity() != null) {
+                        String qtyStr = stock.getCurrentQuantity().stripTrailingZeros().toPlainString();
+                        if (qtyStr.contains(trimmed)) {
+                            matchesQty = true;
+                        } else if (finalNumeric != null && stock.getCurrentQuantity().compareTo(finalNumeric) == 0) {
+                            matchesQty = true;
+                        }
+                    }
+                    return matchesName || matchesQty;
+                })
                 .map(this::mapToResponse)
                 .toList();
     }
@@ -293,16 +322,18 @@ public class StockService
         );
 
 
-        Stock stock =
-                stockRepository
-                        .findStockForUpdateByPublicId(
-                                publicId
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Stock not found"
-                                )
-                        );
+        User currentUser = currentUserService.getCurrentUser();
+
+        Stock stock;
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            stock = stockRepository
+                    .findStockForUpdateByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found"));
+        } else {
+            stock = stockRepository
+                    .findByUserAndPublicIdForUpdate(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found"));
+        }
 
 
         if (!Boolean.TRUE.equals(
@@ -326,61 +357,77 @@ public class StockService
          *
          * The current stock itself must be excluded.
          */
-        if (
-                (
-                        !stock.getRawMaterial()
-                                .equalsIgnoreCase(rawMaterial)
-                                ||
-                                stock.getUnit()
-                                        != dto.getUnit()
-                )
-                        &&
-                        stockRepository
-                                .existsByRawMaterialIgnoreCaseAndUnit(
-                                        rawMaterial,
-                                        dto.getUnit()
-                                )
-        ) {
+        if (!stock.getRawMaterial().equalsIgnoreCase(rawMaterial)
+                && stockRepository.existsByUserAndRawMaterialIgnoreCaseAndPublicIdNot(
+                        currentUser,
+                        rawMaterial,
+                        stock.getPublicId()
+                )) {
 
             throw new DuplicateResourceException(
-                    "Stock already exists for this raw material and unit"
+                    "Stock already exists for this raw material"
             );
         }
 
 
+        String oldRawMaterial =
+                stock.getRawMaterial();
+
         /*
-         * Do not modify currentQuantity here.
-         *
-         * Quantity changes must happen through
-         * StockTransactionService.
+         * Do not modify currentQuantity or unit here.
+         * When the main Edit action is used, it allows
+         * editing only Raw Material and Min Level.
          */
         stock.setRawMaterial(
                 rawMaterial
         );
 
-
-        /*
-         * Unit should preferably remain immutable
-         * once transactions exist.
-         *
-         * If your Stock entity has transaction
-         * history validation, this can be restricted
-         * further.
-         */
-        stock.setUnit(
-                dto.getUnit()
-        );
-
-
-        stock.setMinimumStockLevel(
-                dto.getMinimumStockLevel()
-        );
-
+        if (dto.getMinimumStockLevel() != null) {
+            stock.setMinimumStockLevel(
+                    dto.getMinimumStockLevel()
+            );
+        }
 
         stock =
                 stockRepository.save(
                         stock
                 );
+
+        /*
+         * When the Raw Material is changed through the Edit functionality,
+         * update the Raw Material reference/name across all existing Purchase
+         * and Sales records associated with that particular Raw Material so
+         * historical records remain correctly linked.
+         */
+        if (!oldRawMaterial.equalsIgnoreCase(rawMaterial)) {
+            log.info(
+                    "SERVICE - updating raw material from '{}' to '{}' across historical purchases and sales...",
+                    oldRawMaterial,
+                    rawMaterial
+            );
+
+            List<Purchase> purchases = (currentUser.getRole() == UserRole.ADMIN)
+                    ? purchaseRepository.findByRawMaterialIgnoreCase(oldRawMaterial)
+                    : purchaseRepository.findByUserAndRawMaterialIgnoreCase(currentUser, oldRawMaterial);
+            if (!purchases.isEmpty()) {
+                for (Purchase p : purchases) {
+                    p.setRawMaterial(rawMaterial);
+                }
+                purchaseRepository.saveAll(purchases);
+                log.info("SERVICE - synchronized {} purchase records to new raw material name '{}'", purchases.size(), rawMaterial);
+            }
+
+            List<Sale> sales = (currentUser.getRole() == UserRole.ADMIN)
+                    ? saleRepository.findByRawMaterialIgnoreCase(oldRawMaterial)
+                    : saleRepository.findByUserAndRawMaterialIgnoreCase(currentUser, oldRawMaterial);
+            if (!sales.isEmpty()) {
+                for (Sale s : sales) {
+                    s.setRawMaterial(rawMaterial);
+                }
+                saleRepository.saveAll(sales);
+                log.info("SERVICE - synchronized {} sale records to new raw material name '{}'", sales.size(), rawMaterial);
+            }
+        }
 
 
         log.info(
@@ -520,17 +567,18 @@ public class StockService
         );
 
 
-        Stock stock =
-                stockRepository
-                        .findStockForUpdateByPublicId(
-                                publicId
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Stock not found"
-                                )
-                        );
+        User currentUser = currentUserService.getCurrentUser();
 
+        Stock stock;
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            stock = stockRepository
+                    .findStockForUpdateByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found"));
+        } else {
+            stock = stockRepository
+                    .findByUserAndPublicIdForUpdate(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found"));
+        }
 
         if (!Boolean.TRUE.equals(
                 stock.getIsActive()
@@ -541,14 +589,11 @@ public class StockService
             );
         }
 
-
         stock.setIsActive(false);
-
 
         stockRepository.save(
                 stock
         );
-
 
         log.info(
                 "SERVICE - stock deactivated successfully..."
@@ -565,6 +610,11 @@ public class StockService
     ) {
 
         User currentUser = currentUserService.getCurrentUser();
+
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            return stockRepository.findByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found"));
+        }
 
         return stockRepository
                 .findByUserAndPublicId(

@@ -9,6 +9,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -68,6 +69,9 @@ public class User {
 
     @Column(nullable = false)
     private Boolean firstLogin = true;
+
+    @Column(name = "opening_balance", precision = 15, scale = 2)
+    private BigDecimal openingBalance = BigDecimal.ZERO;
 
     @OneToOne(
             mappedBy = "user",

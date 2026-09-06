@@ -592,6 +592,21 @@ if [ -n "$C1_PURCH_ID" ] && [ "$C1_PURCH_ID" != "null" ]; then
       "{\"purchasePublicId\":\"$C1_PURCH_ID\",\"amountPaid\":100,\"paymentDate\":\"2026-09-01\",\"paymentMode\":\"CASH\",\"remarks\":\"TEST partial payment\"}" \
       201 "Add purchase payment valid - CLIENT1" "$M"
     C1_PP_ID=$(extract_public_id)
+    # Verify paymentNumber is system-generated and present
+    C1_PP_NUM=$(extract_field "paymentNumber")
+    if [ -n "$C1_PP_NUM" ] && [ "$C1_PP_NUM" != "null" ]; then
+        log "[PASS] [$M] paymentNumber present in response -> $C1_PP_NUM"
+        MODULE_PASS[$M]=$(( ${MODULE_PASS[$M]:-0} + 1 ))
+    else
+        log "[FAIL] [$M] paymentNumber missing or null in creation response"
+        MODULE_FAIL[$M]=$(( ${MODULE_FAIL[$M]:-0} + 1 ))
+    fi
+    # Verify optional referenceNumber can be provided
+    if [ -n "$C1_PURCH_ID" ] && [ "$C1_PURCH_ID" != "null" ]; then
+        call_api POST "/purchase-payment/add" "$CLIENT1_TOKEN" \
+          "{\"purchasePublicId\":\"$C1_PURCH_ID\",\"amountPaid\":50,\"paymentDate\":\"2026-09-01\",\"paymentMode\":\"CHEQUE\",\"referenceNumber\":\"CHQ-TEST-$RANDOM\",\"remarks\":\"TEST with referenceNumber\"}" \
+          201 "Add purchase payment with optional referenceNumber" "$M"
+    fi
 fi
 
 # Validation failures
@@ -723,6 +738,15 @@ if [ -n "$C1_SALE_ID" ] && [ "$C1_SALE_ID" != "null" ]; then
       "{\"salePublicId\":\"$C1_SALE_ID\",\"amountReceived\":200,\"paymentDate\":\"2026-09-01\",\"paymentMode\":\"CASH\",\"remarks\":\"TEST partial received\"}" \
       201 "Add sale payment valid - CLIENT1" "$M"
     C1_SP_ID=$(extract_public_id)
+    # Verify paymentNumber is system-generated and present
+    C1_SP_NUM=$(extract_field "paymentNumber")
+    if [ -n "$C1_SP_NUM" ] && [ "$C1_SP_NUM" != "null" ]; then
+        log "[PASS] [$M] paymentNumber present in response -> $C1_SP_NUM"
+        MODULE_PASS[$M]=$(( ${MODULE_PASS[$M]:-0} + 1 ))
+    else
+        log "[FAIL] [$M] paymentNumber missing or null in creation response"
+        MODULE_FAIL[$M]=$(( ${MODULE_FAIL[$M]:-0} + 1 ))
+    fi
 fi
 
 # Add valid payment (ADMIN)
@@ -767,6 +791,11 @@ if [ -n "$C1_SALE_ID" ] && [ "$C1_SALE_ID" != "null" ]; then
     call_api POST "/sale-payment/add" "$CLIENT2_TOKEN" \
       "{\"salePublicId\":\"$C1_SALE_ID\",\"amountReceived\":100,\"paymentDate\":\"2026-09-01\",\"paymentMode\":\"CASH\"}" \
       404 "Isolation: CLIENT2 pays CLIENT1 sale" "$M"
+
+    # Verify optional referenceNumber can be provided
+    call_api POST "/sale-payment/add" "$CLIENT1_TOKEN" \
+      "{\"salePublicId\":\"$C1_SALE_ID\",\"amountReceived\":50,\"paymentDate\":\"2026-09-01\",\"paymentMode\":\"BANK_TRANSFER\",\"referenceNumber\":\"TXN-TEST-$RANDOM\"}" \
+      201 "Add sale payment with optional referenceNumber" "$M"
 fi
 
 # =============================================================================
@@ -779,11 +808,38 @@ call_api GET "/expense/all" NONE NONE 401 "Get all - no auth" "$M"
 call_api GET "/expense/$FAKE_UUID" "$CLIENT1_TOKEN" NONE 404 "Get non-existent expense" "$M"
 call_api GET "/expense/abc123" "$CLIENT1_TOKEN" NONE 400 "Get malformed UUID" "$M"
 
-# Add valid - CLIENT1
+# Add valid - CLIENT1 (No referenceNumber)
 call_api POST "/expense/add" "$CLIENT1_TOKEN" \
   '{"category":"RENT","amount":5000,"expenseDate":"2026-09-01","paymentMode":"BANK_TRANSFER","description":"TEST Monthly office rent"}' \
   201 "Add expense valid - CLIENT1" "$M"
 C1_EXP_ID=$(extract_public_id)
+
+C1_EXP_NUM=$(extract_field "expenseNumber")
+if [ -n "$C1_EXP_NUM" ] && [ "$C1_EXP_NUM" != "null" ]; then
+    log "[PASS] [$M] expenseNumber present in response -> $C1_EXP_NUM"
+    MODULE_PASS[$M]=$(( ${MODULE_PASS[$M]:-0} + 1 ))
+else
+    log "[FAIL] [$M] expenseNumber missing or null in creation response"
+    MODULE_FAIL[$M]=$(( ${MODULE_FAIL[$M]:-0} + 1 ))
+fi
+
+# Add valid - CLIENT1 (With referenceNumber)
+call_api POST "/expense/add" "$CLIENT1_TOKEN" \
+  '{"category":"OFFICE_SUPPLIES","amount":1500,"expenseDate":"2026-09-01","paymentMode":"CHEQUE","referenceNumber":"CHQ-123456","description":"TEST Equipment with reference"}' \
+  201 "Add expense with optional referenceNumber - CLIENT1" "$M"
+
+# Add with expenseNumber in payload (should be ignored and generate a new one)
+call_api POST "/expense/add" "$CLIENT1_TOKEN" \
+  '{"category":"MAINTENANCE","amount":200,"expenseDate":"2026-09-01","paymentMode":"CASH","expenseNumber":"FAKE-999999","description":"TEST malicious expenseNumber override"}' \
+  201 "Add expense malicious expenseNumber override (ignored)" "$M"
+FAKE_EXP_NUM=$(extract_field "expenseNumber")
+if [ "$FAKE_EXP_NUM" != "FAKE-999999" ] && [ -n "$FAKE_EXP_NUM" ] && [[ "$FAKE_EXP_NUM" == EXP-* ]]; then
+    log "[PASS] [$M] Malicious expenseNumber override ignored, system generated -> $FAKE_EXP_NUM"
+    MODULE_PASS[$M]=$(( ${MODULE_PASS[$M]:-0} + 1 ))
+else
+    log "[FAIL] [$M] Malicious expenseNumber override was accepted or generation failed -> $FAKE_EXP_NUM"
+    MODULE_FAIL[$M]=$(( ${MODULE_FAIL[$M]:-0} + 1 ))
+fi
 
 # Add valid - ADMIN
 call_api POST "/expense/add" "$ADMIN_TOKEN" \
@@ -817,8 +873,12 @@ call_api POST "/expense/add" "$CLIENT1_TOKEN" \
   400 "Add expense negative amount" "$M"
 
 call_api POST "/expense/add" "$CLIENT1_TOKEN" \
+  '{"category":"OTHER","amount":1000,"expenseDate":"2026-09-01","paymentMode":"CASH"}' \
+  400 "Add expense missing description for OTHER category" "$M"
+
+call_api POST "/expense/add" "$CLIENT1_TOKEN" \
   '{"category":"RENT","amount":1000,"expenseDate":"2026-09-01","paymentMode":"CASH"}' \
-  400 "Add expense missing description" "$M"
+  201 "Add expense optional description for RENT category" "$M"
 
 # Description too long (>255)
 LONG_DESC=$(python3 -c "print('X'*256)")

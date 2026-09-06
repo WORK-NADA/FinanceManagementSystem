@@ -3,6 +3,8 @@ package FinanceManangementSystem.demo.Repository;
 import FinanceManangementSystem.demo.Model.ProfitDistribution;
 import FinanceManangementSystem.demo.Model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -29,7 +31,7 @@ public interface ProfitDistributionRepository
 
 
     // =========================================================
-    // FIND ALL ORDERED BY DATE
+    // FIND ALL ORDERED BY DATE & LATEST ACTIVITY
     // =========================================================
 
     List<ProfitDistribution> findAllByOrderByToDateDesc();
@@ -38,9 +40,17 @@ public interface ProfitDistributionRepository
             User user
     );
 
+    @Query("SELECT p FROM ProfitDistribution p ORDER BY COALESCE(p.updatedAt, p.createdAt) DESC, p.id DESC")
+    List<ProfitDistribution> findAllOrderByLatestActivity();
+
+    @Query("SELECT p FROM ProfitDistribution p WHERE p.user = :user ORDER BY COALESCE(p.updatedAt, p.createdAt) DESC, p.id DESC")
+    List<ProfitDistribution> findByUserOrderByLatestActivity(
+            @Param("user") User user
+    );
+
 
     // =========================================================
-    // CHECK DUPLICATE PERIOD
+    // CHECK & FIND DUPLICATE PERIOD
     // =========================================================
 
     boolean existsByFromDateAndToDate(
@@ -49,6 +59,12 @@ public interface ProfitDistributionRepository
     );
 
     boolean existsByUserAndFromDateAndToDate(
+            User user,
+            LocalDate fromDate,
+            LocalDate toDate
+    );
+
+    Optional<ProfitDistribution> findByUserAndFromDateAndToDate(
             User user,
             LocalDate fromDate,
             LocalDate toDate

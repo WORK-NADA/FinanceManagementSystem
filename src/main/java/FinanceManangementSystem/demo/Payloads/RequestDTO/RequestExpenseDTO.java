@@ -36,12 +36,17 @@ public class RequestExpenseDTO {
     @NotNull(message = "Payment mode is required")
     private PaymentMode paymentMode;
 
-    @NotBlank(message = "Description is required")
     @Size(
             max = 255,
             message = "Description cannot exceed 255 characters"
     )
     private String description;
+
+    @Size(
+            max = 100,
+            message = "Reference number cannot exceed 100 characters"
+    )
+    private String referenceNumber;
 
     @Size(
             max = 500,

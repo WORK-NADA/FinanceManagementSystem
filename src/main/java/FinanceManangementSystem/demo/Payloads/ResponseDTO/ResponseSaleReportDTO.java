@@ -13,6 +13,12 @@ public class ResponseSaleReportDTO {
     private BigDecimal totalAmount;
     private PaymentStatus paymentStatus;
     private String customerName;
+    private String saleNumber;
+    private String customerInvoiceNumber;
+    private String rawMaterial;
+    private BigDecimal weight;
+    private String unit;
+    private BigDecimal ratePerUnit;
 
     public ResponseSaleReportDTO() {}
 
@@ -26,4 +32,16 @@ public class ResponseSaleReportDTO {
     public void setPaymentStatus(PaymentStatus paymentStatus) { this.paymentStatus = paymentStatus; }
     public String getCustomerName() { return customerName; }
     public void setCustomerName(String customerName) { this.customerName = customerName; }
+    public String getSaleNumber() { return saleNumber; }
+    public void setSaleNumber(String saleNumber) { this.saleNumber = saleNumber; }
+    public String getCustomerInvoiceNumber() { return customerInvoiceNumber; }
+    public void setCustomerInvoiceNumber(String customerInvoiceNumber) { this.customerInvoiceNumber = customerInvoiceNumber; }
+    public String getRawMaterial() { return rawMaterial; }
+    public void setRawMaterial(String rawMaterial) { this.rawMaterial = rawMaterial; }
+    public BigDecimal getWeight() { return weight; }
+    public void setWeight(BigDecimal weight) { this.weight = weight; }
+    public String getUnit() { return unit; }
+    public void setUnit(String unit) { this.unit = unit; }
+    public BigDecimal getRatePerUnit() { return ratePerUnit; }
+    public void setRatePerUnit(BigDecimal ratePerUnit) { this.ratePerUnit = ratePerUnit; }
 }

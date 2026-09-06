@@ -110,24 +110,18 @@ public class ExpenseController {
 
     @GetMapping("/all")
     public ResponseEntity<APIResponse<org.springframework.data.domain.Page<ResponseExpenseDTO>>>
-    getAllExpenses(@RequestParam(defaultValue = "0") int page,
-                   @RequestParam(defaultValue = "20") int size) {
+    getAllExpenses(
+            @RequestParam(required = false) ExpenseCategory category,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate fromDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
-        log.info(
-                "CONTROLLER - request came in getAllExpenses..."
-        );
-
-        log.info(
-                "CONTROLLER - calling expense service..."
-        );
-
+        log.info("CONTROLLER - request came in getAllExpenses with filters...");
         var pageable = org.springframework.data.domain.PageRequest.of(page, size, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "expenseDate"));
 
-        org.springframework.data.domain.Page<ResponseExpenseDTO> response = expenseService.getAllExpenses(pageable);
-
-        log.info(
-                "CONTROLLER - all expenses fetched successfully..."
-        );
+        org.springframework.data.domain.Page<ResponseExpenseDTO> response =
+                expenseService.getAllExpenses(category, fromDate, toDate, pageable);
 
         return ResponseEntity
                 .status(HttpStatus.OK)

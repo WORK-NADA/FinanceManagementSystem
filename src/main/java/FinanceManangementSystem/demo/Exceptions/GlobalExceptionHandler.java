@@ -50,6 +50,25 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(resp, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        ErrorResponse resp = new ErrorResponse(
+                "RESOURCE_NOT_FOUND",
+                "The requested resource was not found: " + ex.getResourcePath()
+        );
+        return new ResponseEntity<>(resp, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        log.warn("Method not supported: {}", ex.getMessage());
+        ErrorResponse resp = new ErrorResponse(
+                "METHOD_NOT_ALLOWED",
+                ex.getMessage()
+        );
+        return new ResponseEntity<>(resp, HttpStatus.METHOD_NOT_ALLOWED);
+    }
+
     /**
      * Handles all typed application exceptions (ResourceNotFoundException, DuplicateResourceException, etc.)
      * Each exception carries its own HTTP status code, error code, and message.

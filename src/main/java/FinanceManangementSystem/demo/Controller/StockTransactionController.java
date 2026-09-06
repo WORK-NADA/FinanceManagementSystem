@@ -114,24 +114,20 @@ public class StockTransactionController {
     public ResponseEntity<
             APIResponse<org.springframework.data.domain.Page<ResponseStockTransactionDTO>>
             >
-    getAllTransactions(@RequestParam(defaultValue = "0") int page,
-                       @RequestParam(defaultValue = "20") int size) {
+    getAllTransactions(
+            @RequestParam(required = false) UUID stockPublicId,
+            @RequestParam(required = false) StockTransactionType type,
+            @RequestParam(required = false) String referenceNumber,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate fromDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
-        log.info(
-                "CONTROLLER - request came in getAllTransactions..."
-        );
-
-        log.info(
-                "CONTROLLER - calling stock transaction service..."
-        );
-
+        log.info("CONTROLLER - request came in getAllTransactions with filters...");
         var pageable = org.springframework.data.domain.PageRequest.of(page, size, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "transactionDate"));
 
-        org.springframework.data.domain.Page<ResponseStockTransactionDTO> response = stockTransactionService.getAllTransactions(pageable);
-
-        log.info(
-                "CONTROLLER - all stock transactions fetched successfully..."
-        );
+        org.springframework.data.domain.Page<ResponseStockTransactionDTO> response =
+                stockTransactionService.getAllTransactions(stockPublicId, type, referenceNumber, fromDate, toDate, pageable);
 
         return ResponseEntity
                 .status(HttpStatus.OK)

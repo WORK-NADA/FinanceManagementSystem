@@ -31,8 +31,8 @@ import java.util.UUID;
         },
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_purchase_payment_user_ref",
-                        columnNames = {"user_id", "reference_number"}
+                        name = "uk_purchase_payment_user_number",
+                        columnNames = {"user_id", "payment_number"}
                 )
         }
 )
@@ -87,11 +87,27 @@ public class PurchasePayment {
     )
     private PaymentMode paymentMode;
 
+    // =========================================================
+    // PAYMENT NUMBER (auto-generated, sequential, system-assigned)
+    // =========================================================
+
+    @Column(
+            name = "payment_number",
+            nullable = false,
+            length = 30,
+            updatable = false
+    )
+    private String paymentNumber;
+
+
+    // =========================================================
+    // REFERENCE NUMBER (optional, user-supplied: cheque/bank txn ID)
+    // =========================================================
+
     @Column(
             name = "reference_number",
-            nullable = false,
-            length = 50,
-            updatable = false
+            nullable = true,
+            length = 100
     )
     private String referenceNumber;
 

@@ -5,6 +5,7 @@ import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
 
 import FinanceManangementSystem.demo.Enums.DocumentType;
 import FinanceManangementSystem.demo.Enums.PaymentStatus;
+import FinanceManangementSystem.demo.Enums.UserRole;
 import FinanceManangementSystem.demo.Model.Customer;
 import FinanceManangementSystem.demo.Model.Sale;
 import FinanceManangementSystem.demo.Model.SalePayment;
@@ -20,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -78,8 +81,10 @@ public class SalePaymentService
                             return new ResourceNotFoundException("Sale not found");
                         });
 
+
         // -----------------------------------------------------
         // VALIDATE AMOUNT
+        // -----------------------------------------------------
 
         BigDecimal currentReceivedAmount =
                 salePaymentRepo
@@ -116,14 +121,14 @@ public class SalePaymentService
 
 
         // -----------------------------------------------------
-        // GENERATE REFERENCE NUMBER
+        // GENERATE PAYMENT NUMBER (system-assigned, sequential)
         // -----------------------------------------------------
 
         int year =
                 dto.getPaymentDate()
                         .getYear();
 
-        String referenceNumber =
+        String paymentNumber =
                 documentSequenceService
                         .generateDocumentNumber(
                                 DocumentType.CUSTOMER_RECEIPT,
@@ -156,8 +161,12 @@ public class SalePaymentService
                 dto.getPaymentMode()
         );
 
+        payment.setPaymentNumber(
+                paymentNumber
+        );
+
         payment.setReferenceNumber(
-                referenceNumber
+                dto.getReferenceNumber() != null ? dto.getReferenceNumber().trim() : null
         );
 
         payment.setRemarks(
@@ -453,36 +462,41 @@ public class SalePaymentService
                 .toList();
     }
 
-        @Override
-        @Transactional(readOnly = true)
-        public Page<ResponseSalePaymentDTO> getAllPayments(@org.springframework.lang.NonNull org.springframework.data.domain.Pageable pageable) {
 
-                log.info("SERVICE - request came in getAllPayments for sales...");
+    // =========================================================
+    // GET ALL PAYMENTS (PAGINATED)
+    // =========================================================
 
-                User currentUser = currentUserService.getCurrentUser();
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ResponseSalePaymentDTO> getAllPayments(@NonNull Pageable pageable) {
 
-                if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
-                        return salePaymentRepo.findAll(pageable)
-                                        .map(payment -> {
-                                                Sale sale = payment.getSale();
-                                                java.math.BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
-                                                return mapToResponse(payment, sale, receivedAmount);
-                                        });
-                }
+        log.info("SERVICE - request came in getAllPayments for sales...");
 
-                List<ResponseSalePaymentDTO> filtered = salePaymentRepo.findAll(pageable)
-                                .getContent()
-                                .stream()
-                                .filter(payment -> payment.getUser() != null && payment.getUser().equals(currentUser))
-                                .map(payment -> {
-                                        Sale sale = payment.getSale();
-                                        java.math.BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
-                                        return mapToResponse(payment, sale, receivedAmount);
-                                })
-                                .toList();
+        User currentUser = currentUserService.getCurrentUser();
 
-                return new PageImpl<>(filtered, pageable, filtered.size());
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            return salePaymentRepo.findAll(pageable)
+                    .map(payment -> {
+                        Sale sale = payment.getSale();
+                        BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
+                        return mapToResponse(payment, sale, receivedAmount);
+                    });
         }
+
+        List<ResponseSalePaymentDTO> filtered = salePaymentRepo.findAll(pageable)
+                .getContent()
+                .stream()
+                .filter(payment -> payment.getUser() != null && payment.getUser().equals(currentUser))
+                .map(payment -> {
+                    Sale sale = payment.getSale();
+                    BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
+                    return mapToResponse(payment, sale, receivedAmount);
+                })
+                .toList();
+
+        return new PageImpl<>(filtered, pageable, filtered.size());
+    }
 
 
     // =========================================================
@@ -556,6 +570,16 @@ public class SalePaymentService
 
         details.setSaleNumber(
                 sale.getSaleNumber()
+        );
+
+        details.setCustomerName(
+                sale.getCustomer() != null
+                        ? sale.getCustomer().getCustomerName()
+                        : null
+        );
+
+        details.setSaleDate(
+                sale.getSaleDate()
         );
 
         details.setTotalAmount(

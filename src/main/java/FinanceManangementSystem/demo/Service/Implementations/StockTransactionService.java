@@ -21,10 +21,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.jpa.domain.Specification;
+import FinanceManangementSystem.demo.Specification.StockTransactionSpecification;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -144,6 +150,50 @@ public class StockTransactionService
     // PURCHASE IN
     // =========================================================
 
+    // =========================================================
+    // UNIT CONVERSION HELPER
+    // =========================================================
+
+    public static BigDecimal convertQuantity(
+            BigDecimal quantity,
+            WeightUnit fromUnit,
+            WeightUnit toUnit
+    ) {
+
+        if (quantity == null) {
+            return BigDecimal.ZERO;
+        }
+
+        if (fromUnit == null || toUnit == null || fromUnit == toUnit) {
+            return quantity;
+        }
+
+        // 1. Convert fromUnit to KG (base unit)
+        BigDecimal inKg;
+        switch (fromUnit) {
+            case G -> inKg = quantity.divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
+            case TON -> inKg = quantity.multiply(BigDecimal.valueOf(1000));
+            case KG -> inKg = quantity;
+            default -> inKg = quantity;
+        }
+
+        // 2. Convert from KG to toUnit
+        BigDecimal result;
+        switch (toUnit) {
+            case G -> result = inKg.multiply(BigDecimal.valueOf(1000));
+            case TON -> result = inKg.divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP);
+            case KG -> result = inKg;
+            default -> result = inKg;
+        }
+
+        return result.setScale(3, RoundingMode.HALF_UP);
+    }
+
+
+    // =========================================================
+    // PURCHASE IN
+    // =========================================================
+
     @Override
     @Transactional
     public void purchaseStockIn(
@@ -157,45 +207,220 @@ public class StockTransactionService
                 "SERVICE - request came in purchaseStockIn..."
         );
 
-
         validateQuantity(
                 quantity
         );
 
+        if (rawMaterial == null || rawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException(
+                    "Raw material is required"
+            );
+        }
 
-        Stock stock =
-                findStockForUpdate(
-                        rawMaterial,
-                        unit
-                );
+        User currentUser = currentUserService.getCurrentUser();
+        String trimmedRawMaterial = rawMaterial.trim();
+        WeightUnit effectiveUnit = unit != null ? unit : WeightUnit.KG;
 
+        // Find existing stock record ignoring case sensitivity for this client
+        Stock stock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(
+                        currentUser,
+                        trimmedRawMaterial
+                )
+                .orElseGet(() -> {
+                    log.info(
+                            "SERVICE - stock not found for client, automatically creating new stock master for: {} ({})",
+                            trimmedRawMaterial,
+                            effectiveUnit
+                    );
+                    Stock newStock = new Stock();
+                    newStock.setUser(currentUser);
+                    newStock.setRawMaterial(trimmedRawMaterial);
+                    newStock.setUnit(effectiveUnit);
+                    newStock.setCurrentQuantity(BigDecimal.ZERO);
+                    newStock.setMinimumStockLevel(BigDecimal.ZERO);
+                    newStock.setIsActive(true);
+                    return stockRepository.save(newStock);
+                });
 
-        validateActiveStock(
-                stock
-        );
+        if (!Boolean.TRUE.equals(stock.getIsActive())) {
+            stock.setIsActive(true);
+        }
 
+        // Convert incoming purchased quantity to stock's canonical unit if different
+        BigDecimal convertedQuantity = convertQuantity(quantity, effectiveUnit, stock.getUnit());
 
         increaseStock(
                 stock,
-                quantity
+                convertedQuantity
         );
-
-
-        User currentUser = currentUserService.getCurrentUser();
 
         createTransaction(
                 currentUser,
                 stock,
                 StockTransactionType.PURCHASE_IN,
-                quantity,
+                convertedQuantity,
                 purchaseNumber,
-                "Stock added through purchase"
+                "Stock added through purchase" + (effectiveUnit != stock.getUnit() ? " (" + quantity + " " + effectiveUnit + ")" : "")
         );
-
 
         log.info(
-                "SERVICE - purchase stock added successfully..."
+                "SERVICE - purchase stock added successfully to single record..."
         );
+    }
+
+
+    // =========================================================
+    // UPDATE PURCHASE STOCK
+    // =========================================================
+
+    @Override
+    @Transactional
+    public void updatePurchaseStock(
+            User user,
+            String oldRawMaterial,
+            WeightUnit oldUnit,
+            BigDecimal oldWeight,
+            String newRawMaterial,
+            WeightUnit newUnit,
+            BigDecimal newWeight,
+            String purchaseNumber
+    ) {
+        log.info("SERVICE - updating purchase stock for purchase: {}", purchaseNumber);
+        validateQuantity(oldWeight);
+        validateQuantity(newWeight);
+
+        if (newRawMaterial == null || newRawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException("Raw material is required");
+        }
+
+        String trimmedOld = oldRawMaterial.trim();
+        String trimmedNew = newRawMaterial.trim();
+        WeightUnit effOldUnit = oldUnit != null ? oldUnit : WeightUnit.KG;
+        WeightUnit effNewUnit = newUnit != null ? newUnit : WeightUnit.KG;
+
+        boolean sameMaterial = trimmedOld.equalsIgnoreCase(trimmedNew);
+
+        if (sameMaterial) {
+            Stock stock = stockRepository
+                    .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedOld)
+                    .orElseThrow(() -> new ResourceNotFoundException("Stock not found for: " + trimmedOld));
+
+            BigDecimal oldConverted = convertQuantity(oldWeight, effOldUnit, stock.getUnit());
+            BigDecimal newConverted = convertQuantity(newWeight, effNewUnit, stock.getUnit());
+            BigDecimal diff = newConverted.subtract(oldConverted);
+
+            if (diff.compareTo(BigDecimal.ZERO) > 0) {
+                increaseStock(stock, diff);
+            } else if (diff.compareTo(BigDecimal.ZERO) < 0) {
+                BigDecimal absDiff = diff.abs();
+                if (stock.getCurrentQuantity().compareTo(absDiff) < 0) {
+                    throw new InvalidRequestException(
+                            "Cannot reduce purchase quantity. Available stock is " +
+                                    stock.getCurrentQuantity() + " " + stock.getUnit() +
+                                    ", which is less than the required reduction of " +
+                                    absDiff + " " + stock.getUnit() + "."
+                    );
+                }
+                decreaseStock(stock, absDiff);
+            }
+
+            stockTransactionRepository.findByUserAndReferenceNumberAndTransactionType(
+                    user, purchaseNumber.trim(), StockTransactionType.PURCHASE_IN
+            ).ifPresent(tx -> {
+                tx.setQuantity(newConverted);
+                tx.setRemarks("Stock added through purchase (updated)" +
+                        (effNewUnit != stock.getUnit() ? " (" + newWeight + " " + effNewUnit + ")" : ""));
+                stockTransactionRepository.save(tx);
+            });
+        } else {
+            // Material changed: revert old stock, add to new stock
+            revertPurchaseStock(user, trimmedOld, effOldUnit, oldWeight, purchaseNumber);
+
+            Stock newStock = stockRepository
+                    .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedNew)
+                    .orElseGet(() -> {
+                        Stock s = new Stock();
+                        s.setUser(user);
+                        s.setRawMaterial(trimmedNew);
+                        s.setUnit(effNewUnit);
+                        s.setCurrentQuantity(BigDecimal.ZERO);
+                        s.setMinimumStockLevel(BigDecimal.ZERO);
+                        s.setIsActive(true);
+                        return stockRepository.save(s);
+                    });
+
+            if (!Boolean.TRUE.equals(newStock.getIsActive())) {
+                newStock.setIsActive(true);
+            }
+
+            BigDecimal newConverted = convertQuantity(newWeight, effNewUnit, newStock.getUnit());
+            increaseStock(newStock, newConverted);
+
+            createTransaction(
+                    user,
+                    newStock,
+                    StockTransactionType.PURCHASE_IN,
+                    newConverted,
+                    purchaseNumber.trim(),
+                    "Stock added through purchase (material changed from " + trimmedOld + ")"
+            );
+        }
+        log.info("SERVICE - purchase stock updated successfully for: {}", purchaseNumber);
+    }
+
+
+    // =========================================================
+    // REVERT PURCHASE STOCK (DELETION)
+    // =========================================================
+
+    @Override
+    @Transactional
+    public void revertPurchaseStock(
+            User user,
+            String rawMaterial,
+            WeightUnit unit,
+            BigDecimal quantity,
+            String purchaseNumber
+    ) {
+        log.info("SERVICE - reverting purchase stock for purchase: {}", purchaseNumber);
+        validateQuantity(quantity);
+        if (rawMaterial == null || rawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException("Raw material is required");
+        }
+
+        String trimmedRawMaterial = rawMaterial.trim();
+        WeightUnit effectiveUnit = unit != null ? unit : WeightUnit.KG;
+
+        Stock stock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedRawMaterial)
+                .orElseThrow(() -> new ResourceNotFoundException("Stock record not found for: " + trimmedRawMaterial));
+
+        BigDecimal convertedQuantity = convertQuantity(quantity, effectiveUnit, stock.getUnit());
+
+        if (stock.getCurrentQuantity().compareTo(convertedQuantity) < 0) {
+            throw new InvalidRequestException(
+                    "Cannot delete purchase #" + purchaseNumber +
+                            ". Available stock for " + stock.getRawMaterial() + " is " +
+                            stock.getCurrentQuantity() + " " + stock.getUnit() +
+                            ", which is less than the purchased quantity (" +
+                            convertedQuantity + " " + stock.getUnit() + "). " +
+                            "The stock from this purchase has already been consumed by sales or adjustments."
+            );
+        }
+
+        decreaseStock(stock, convertedQuantity);
+
+        // Record "Cancel Purchase" stock history entry instead of deleting the original PURCHASE_IN entry
+        createTransaction(
+                user,
+                stock,
+                StockTransactionType.CANCEL_PURCHASE_OUT,
+                convertedQuantity,
+                purchaseNumber.trim(),
+                "Stock reversed due to deletion/cancellation of Purchase #" + purchaseNumber.trim()
+        );
+        log.info("SERVICE - purchase stock cancelled and reversal recorded for purchase: {}", purchaseNumber);
     }
 
 
@@ -216,107 +441,238 @@ public class StockTransactionService
                 "SERVICE - request came in saleStockOut..."
         );
 
-
         validateQuantity(
                 quantity
         );
 
+        if (rawMaterial == null || rawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException(
+                    "Raw material is required"
+            );
+        }
 
-        Stock stock =
-                findStockForUpdate(
-                        rawMaterial,
-                        unit
+        User currentUser = currentUserService.getCurrentUser();
+        String trimmedRawMaterial = rawMaterial.trim();
+        WeightUnit effectiveUnit = unit != null ? unit : WeightUnit.KG;
+
+        // Find existing stock record ignoring case sensitivity for this client
+        Stock stock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(
+                        currentUser,
+                        trimmedRawMaterial
+                )
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Stock not found for raw material: " + trimmedRawMaterial
+                        )
                 );
-
 
         validateActiveStock(
                 stock
         );
 
+        // Convert sale quantity to stock's canonical unit if different
+        BigDecimal convertedQuantity = convertQuantity(quantity, effectiveUnit, stock.getUnit());
 
         decreaseStock(
                 stock,
-                quantity
+                convertedQuantity
         );
-
-
-        User currentUser = currentUserService.getCurrentUser();
 
         createTransaction(
                 currentUser,
                 stock,
                 StockTransactionType.SALE_OUT,
-                quantity,
+                convertedQuantity,
                 saleNumber,
-                "Stock removed through sale"
+                "Stock removed through sale" + (effectiveUnit != stock.getUnit() ? " (" + quantity + " " + effectiveUnit + ")" : "")
         );
 
-
         log.info(
-                "SERVICE - sale stock removed successfully..."
+                "SERVICE - sale stock deducted successfully from single record..."
         );
     }
 
 
-
     // =========================================================
-    // SALE RETURN IN
+    // UPDATE SALE STOCK (EDIT)
     // =========================================================
 
     @Override
     @Transactional
-    public void saleReturnStockIn(
+    public void updateSaleStock(
+            User user,
+            String rawMaterial,
+            WeightUnit unit,
+            BigDecimal oldWeight,
+            BigDecimal newWeight,
+            String saleNumber
+    ) {
+        log.info("SERVICE - updating sale stock for sale: {}", saleNumber);
+        validateQuantity(newWeight);
+        if (rawMaterial == null || rawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException("Raw material is required");
+        }
+
+        String trimmedRawMaterial = rawMaterial.trim();
+        WeightUnit effectiveUnit = unit != null ? unit : WeightUnit.KG;
+
+        Stock stock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedRawMaterial)
+                .orElseThrow(() -> new ResourceNotFoundException("Stock not found for raw material: " + trimmedRawMaterial));
+
+        validateActiveStock(stock);
+
+        BigDecimal oldConverted = convertQuantity(oldWeight, effectiveUnit, stock.getUnit());
+        BigDecimal newConverted = convertQuantity(newWeight, effectiveUnit, stock.getUnit());
+        BigDecimal diff = newConverted.subtract(oldConverted);
+
+        if (diff.compareTo(BigDecimal.ZERO) > 0) {
+            // Increasing sale quantity -> need to deduct more stock from inventory
+            if (stock.getCurrentQuantity().compareTo(diff) < 0) {
+                throw new InvalidRequestException(
+                        "Cannot increase sale quantity. Available stock for " + stock.getRawMaterial() + " is " +
+                                stock.getCurrentQuantity() + " " + stock.getUnit() +
+                                ", but additional " + diff + " " + stock.getUnit() + " is required."
+                );
+            }
+            decreaseStock(stock, diff);
+        } else if (diff.compareTo(BigDecimal.ZERO) < 0) {
+            // Decreasing sale quantity -> return the difference back to inventory
+            BigDecimal returnedQty = diff.abs();
+            increaseStock(stock, returnedQty);
+        }
+
+        stockTransactionRepository.findByUserAndReferenceNumberAndTransactionType(
+                user, saleNumber.trim(), StockTransactionType.SALE_OUT
+        ).ifPresent(tx -> {
+            tx.setQuantity(newConverted);
+            tx.setRemarks("Stock removed through sale (updated)" +
+                    (effectiveUnit != stock.getUnit() ? " (" + newWeight + " " + effectiveUnit + ")" : ""));
+            stockTransactionRepository.save(tx);
+        });
+
+        log.info("SERVICE - sale stock updated successfully for: {}", saleNumber);
+    }
+
+
+    @Override
+    @Transactional
+    public void updateSaleStock(
+            User user,
+            String oldRawMaterial,
+            WeightUnit oldUnit,
+            BigDecimal oldWeight,
+            String newRawMaterial,
+            WeightUnit newUnit,
+            BigDecimal newWeight,
+            String saleNumber
+    ) {
+        log.info("SERVICE - updating sale stock for sale with material change: {}", saleNumber);
+        validateQuantity(newWeight);
+        if (newRawMaterial == null || newRawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException("Raw material is required");
+        }
+
+        String trimmedOld = oldRawMaterial != null ? oldRawMaterial.trim() : "";
+        String trimmedNew = newRawMaterial.trim();
+        WeightUnit effOldUnit = oldUnit != null ? oldUnit : WeightUnit.KG;
+        WeightUnit effNewUnit = newUnit != null ? newUnit : WeightUnit.KG;
+
+        boolean sameMaterial = trimmedOld.equalsIgnoreCase(trimmedNew) && effOldUnit == effNewUnit;
+
+        if (sameMaterial) {
+            updateSaleStock(user, trimmedOld, effOldUnit, oldWeight, newWeight, saleNumber);
+            return;
+        }
+
+        // Material changed:
+        // 1. Return old stock
+        if (!trimmedOld.isEmpty() && oldWeight != null && oldWeight.compareTo(BigDecimal.ZERO) > 0) {
+            Stock oldStock = stockRepository
+                    .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedOld)
+                    .orElse(null);
+
+            if (oldStock != null) {
+                BigDecimal oldConverted = convertQuantity(oldWeight, effOldUnit, oldStock.getUnit());
+                increaseStock(oldStock, oldConverted);
+            }
+        }
+
+        // 2. Check and deduct new stock
+        Stock newStock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedNew)
+                .orElseThrow(() -> new ResourceNotFoundException("Stock record not found for raw material: " + trimmedNew));
+
+        validateActiveStock(newStock);
+
+        BigDecimal newConverted = convertQuantity(newWeight, effNewUnit, newStock.getUnit());
+        if (newStock.getCurrentQuantity().compareTo(newConverted) < 0) {
+            throw new InvalidRequestException(
+                    "Cannot update sale material to " + newStock.getRawMaterial() +
+                            ". Available stock is " + newStock.getCurrentQuantity() + " " + newStock.getUnit() +
+                            ", but required quantity is " + newConverted + " " + newStock.getUnit() + "."
+            );
+        }
+        decreaseStock(newStock, newConverted);
+
+        // 3. Update stock transaction record
+        stockTransactionRepository.findByUserAndReferenceNumberAndTransactionType(
+                user, saleNumber.trim(), StockTransactionType.SALE_OUT
+        ).ifPresent(tx -> {
+            tx.setStock(newStock);
+            tx.setQuantity(newConverted);
+            tx.setRemarks("Stock removed through sale (material changed from " + trimmedOld + ")" +
+                    (effNewUnit != newStock.getUnit() ? " (" + newWeight + " " + effNewUnit + ")" : ""));
+            stockTransactionRepository.save(tx);
+        });
+
+        log.info("SERVICE - sale stock updated with material change successfully for: {}", saleNumber);
+    }
+
+
+    // =========================================================
+    // REVERT SALE STOCK (DELETION)
+    // =========================================================
+
+    @Override
+    @Transactional
+    public void revertSaleStock(
+            User user,
             String rawMaterial,
             WeightUnit unit,
             BigDecimal quantity,
-            String returnNumber
+            String saleNumber
     ) {
+        log.info("SERVICE - reverting sale stock for sale: {}", saleNumber);
+        validateQuantity(quantity);
+        if (rawMaterial == null || rawMaterial.trim().isEmpty()) {
+            throw new InvalidRequestException("Raw material is required");
+        }
 
-        log.info(
-                "SERVICE - request came in saleReturnStockIn..."
-        );
+        String trimmedRawMaterial = rawMaterial.trim();
+        WeightUnit effectiveUnit = unit != null ? unit : WeightUnit.KG;
 
+        Stock stock = stockRepository
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(user, trimmedRawMaterial)
+                .orElseThrow(() -> new ResourceNotFoundException("Stock record not found for: " + trimmedRawMaterial));
 
-        validateQuantity(
-                quantity
-        );
+        BigDecimal convertedQuantity = convertQuantity(quantity, effectiveUnit, stock.getUnit());
 
+        // Return sold quantity back to available inventory
+        increaseStock(stock, convertedQuantity);
 
-        Stock stock =
-                findStockForUpdate(
-                        rawMaterial,
-                        unit
-                );
-
-
-        validateActiveStock(
-                stock
-        );
-
-
-        increaseStock(
-                stock,
-                quantity
-        );
-
-
-        User currentUser = currentUserService.getCurrentUser();
-
+        // Record "Cancel Sale" stock history entry instead of deleting the original SALE_OUT entry
         createTransaction(
-                currentUser,
+                user,
                 stock,
-                StockTransactionType.SALE_RETURN_IN,
-                quantity,
-                returnNumber,
-                "Stock added through sales return"
+                StockTransactionType.CANCEL_SALE_IN,
+                convertedQuantity,
+                saleNumber.trim(),
+                "Stock returned to inventory due to deletion/cancellation of Sale #" + saleNumber.trim()
         );
-
-
-        log.info(
-                "SERVICE - sale return stock added successfully..."
-        );
+        log.info("SERVICE - sale stock cancelled and reversal recorded for sale: {}", saleNumber);
     }
-
 
 
     // =========================================================
@@ -341,10 +697,12 @@ public class StockTransactionService
                 quantity
         );
 
+        User currentUser = currentUserService.getCurrentUser();
 
         Stock stock =
                 stockRepository
-                        .findStockForUpdateByPublicId(
+                        .findByUserAndPublicIdForUpdate(
+                                currentUser,
                                 stockPublicId
                         )
                         .orElseThrow(() ->
@@ -364,8 +722,6 @@ public class StockTransactionService
                 quantity
         );
 
-
-        User currentUser = currentUserService.getCurrentUser();
 
         createTransaction(
                 currentUser,
@@ -405,10 +761,12 @@ public class StockTransactionService
                 quantity
         );
 
+        User currentUser = currentUserService.getCurrentUser();
 
         Stock stock =
                 stockRepository
-                        .findStockForUpdateByPublicId(
+                        .findByUserAndPublicIdForUpdate(
+                                currentUser,
                                 stockPublicId
                         )
                         .orElseThrow(() ->
@@ -428,8 +786,6 @@ public class StockTransactionService
                 quantity
         );
 
-
-        User currentUser = currentUserService.getCurrentUser();
 
         createTransaction(
                 currentUser,
@@ -486,21 +842,34 @@ public class StockTransactionService
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ResponseStockTransactionDTO> getAllTransactions(@org.springframework.lang.NonNull org.springframework.data.domain.Pageable pageable) {
+    public Page<ResponseStockTransactionDTO> getAllTransactions(@NonNull Pageable pageable) {
+        return getAllTransactions(null, null, null, null, null, pageable);
+    }
 
-        log.info(
-                "SERVICE - request came in getAllTransactions..."
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ResponseStockTransactionDTO> getAllTransactions(
+            UUID stockPublicId,
+            StockTransactionType type,
+            String referenceNumber,
+            LocalDate fromDate,
+            LocalDate toDate,
+            Pageable pageable
+    ) {
+        log.info("SERVICE - request came in getAllTransactions with filters...");
+        User currentUser = currentUserService.getCurrentUser();
+        User filterUser = (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) ? null : currentUser;
+
+        Specification<StockTransaction> spec = StockTransactionSpecification.filter(
+                filterUser,
+                stockPublicId,
+                type,
+                referenceNumber,
+                fromDate,
+                toDate
         );
 
-        User currentUser = currentUserService.getCurrentUser();
-
-        if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
-            return stockTransactionRepository.findAll(pageable).map(this::mapToResponse);
-        } else {
-            return stockTransactionRepository
-                    .findByUser(currentUser, pageable)
-                    .map(this::mapToResponse);
-        }
+        return stockTransactionRepository.findAll(spec, pageable).map(this::mapToResponse);
     }
 
 
@@ -745,23 +1114,16 @@ public class StockTransactionService
             );
         }
 
-
-        if (unit == null) {
-
-            throw new InvalidRequestException(
-                    "Unit is required"
-            );
-        }
-
+        User currentUser = currentUserService.getCurrentUser();
 
         return stockRepository
-                .findStockForUpdate(
-                        rawMaterial.trim(),
-                        unit
+                .findByUserAndRawMaterialIgnoreCaseForUpdate(
+                        currentUser,
+                        rawMaterial.trim()
                 )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
-                                "Stock not found"
+                                "Stock not found for raw material: " + rawMaterial.trim()
                         )
                 );
     }

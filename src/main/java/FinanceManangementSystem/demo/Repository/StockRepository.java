@@ -70,6 +70,41 @@ public interface StockRepository
             WeightUnit unit
     );
 
+    @Query("""
+            SELECT COUNT(s) > 0
+            FROM Stock s
+            WHERE s.user = :user
+            AND LOWER(s.rawMaterial) = LOWER(:rawMaterial)
+            """)
+    boolean existsByUserAndRawMaterialIgnoreCase(
+            @Param("user") User user,
+            @Param("rawMaterial") String rawMaterial
+    );
+
+    @Query("""
+            SELECT COUNT(s) > 0
+            FROM Stock s
+            WHERE s.user = :user
+            AND LOWER(s.rawMaterial) = LOWER(:rawMaterial)
+            AND s.publicId <> :publicId
+            """)
+    boolean existsByUserAndRawMaterialIgnoreCaseAndPublicIdNot(
+            @Param("user") User user,
+            @Param("rawMaterial") String rawMaterial,
+            @Param("publicId") UUID publicId
+    );
+
+    @Query("""
+            SELECT s
+            FROM Stock s
+            WHERE s.user = :user
+            AND LOWER(s.rawMaterial) = LOWER(:rawMaterial)
+            """)
+    Optional<Stock> findByUserAndRawMaterialIgnoreCase(
+            @Param("user") User user,
+            @Param("rawMaterial") String rawMaterial
+    );
+
 
     // =========================================================
     // ACTIVE STOCKS
@@ -109,6 +144,59 @@ public interface StockRepository
             String rawMaterial
     );
 
+
+    // =========================================================
+    // INACTIVE STOCK SEARCH
+    // =========================================================
+
+    List<Stock>
+    findByUserAndRawMaterialContainingIgnoreCaseAndIsActiveFalse(
+            User user,
+            String rawMaterial
+    );
+
+    List<Stock>
+    findByRawMaterialContainingIgnoreCaseAndIsActiveFalse(
+            String rawMaterial
+    );
+
+
+    // =========================================================
+    // STOCK AUDIT / RECONCILIATION
+    // =========================================================
+    /*
+     * Finds stocks whose recorded currentQuantity does not match
+     * the sum of transactions in the ledger.
+     *
+     * In a healthy system, this query should return 0 results.
+     */
+
+    @Query("""
+            SELECT s
+            FROM Stock s
+            WHERE s.currentQuantity <> (
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN t.transactionType IN (
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.PURCHASE_IN,
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.ADJUSTMENT_IN,
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.CANCEL_SALE_IN
+                        ) THEN t.quantity
+                        WHEN t.transactionType IN (
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.SALE_OUT,
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.ADJUSTMENT_OUT,
+                            FinanceManangementSystem.demo.Enums.StockTransactionType.CANCEL_PURCHASE_OUT
+                        ) THEN -t.quantity
+                        ELSE 0
+                    END
+                ), 0)
+                FROM StockTransaction t
+                WHERE t.stock = s
+            )
+            """)
+    List<Stock> findDiscrepantStocks();
+
+
     // =========================================================
     // FIND LOW STOCKS
     // =========================================================
@@ -136,14 +224,12 @@ public interface StockRepository
     // FIND STOCK WITH PESSIMISTIC WRITE LOCK
     // =========================================================
     /*
-     * Used when stock quantity is going to be changed.
+     * CRITICAL METHOD FOR CONCURRENCY SAFETY
      *
-     * Example:
      * PURCHASE_IN
      * SALE_OUT
-     * PURCHASE_RETURN_OUT
-     * SALE_RETURN_IN
-     * PURCHASE_CANCEL_OUT
+     * CANCEL_PURCHASE_OUT
+     * CANCEL_SALE_IN
      * ADJUSTMENT_IN
      * ADJUSTMENT_OUT
      *
@@ -163,6 +249,32 @@ public interface StockRepository
             @Param("unit") WeightUnit unit
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT s
+            FROM Stock s
+            WHERE s.user = :user
+            AND LOWER(s.rawMaterial) = LOWER(:rawMaterial)
+            AND s.unit = :unit
+            """)
+    Optional<Stock> findByUserAndRawMaterialForUpdate(
+            @Param("user") User user,
+            @Param("rawMaterial") String rawMaterial,
+            @Param("unit") WeightUnit unit
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT s
+            FROM Stock s
+            WHERE s.user = :user
+            AND LOWER(s.rawMaterial) = LOWER(:rawMaterial)
+            """)
+    Optional<Stock> findByUserAndRawMaterialIgnoreCaseForUpdate(
+            @Param("user") User user,
+            @Param("rawMaterial") String rawMaterial
+    );
+
 
     // =========================================================
     // FIND STOCK BY PUBLIC ID WITH PESSIMISTIC WRITE LOCK
@@ -179,6 +291,18 @@ public interface StockRepository
             WHERE s.publicId = :publicId
             """)
     Optional<Stock> findStockForUpdateByPublicId(
+            @Param("publicId") UUID publicId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT s
+            FROM Stock s
+            WHERE s.user = :user
+            AND s.publicId = :publicId
+            """)
+    Optional<Stock> findByUserAndPublicIdForUpdate(
+            @Param("user") User user,
             @Param("publicId") UUID publicId
     );
 }

@@ -7,11 +7,13 @@ import FinanceManangementSystem.demo.Enums.DocumentType;
 import FinanceManangementSystem.demo.Enums.PaymentStatus;
 import FinanceManangementSystem.demo.Enums.PurchaseStatus;
 import FinanceManangementSystem.demo.Enums.UserRole;
+import FinanceManangementSystem.demo.Enums.WeightUnit;
 import FinanceManangementSystem.demo.Model.Purchase;
 import FinanceManangementSystem.demo.Model.Supplier;
 import FinanceManangementSystem.demo.Model.User;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestPurchaseDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePurchaseDTO;
+import FinanceManangementSystem.demo.Repository.PurchasePaymentRepository;
 import FinanceManangementSystem.demo.Repository.PurchaseRepository;
 import FinanceManangementSystem.demo.Repository.SupplierRepository;
 import FinanceManangementSystem.demo.Service.PurchaseServiceInterface;
@@ -21,6 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.jpa.domain.Specification;
+import FinanceManangementSystem.demo.Specification.PurchaseSpecification;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,6 +42,8 @@ public class PurchaseService
     private final PurchaseRepository purchaseRepo;
 
     private final SupplierRepository supplierRepo;
+
+    private final PurchasePaymentRepository purchasePaymentRepo;
 
     private final CurrentUserService currentUserService;
 
@@ -370,14 +376,31 @@ public class PurchaseService
     @Override
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<ResponsePurchaseDTO> getAllPurchases(org.springframework.data.domain.Pageable pageable) {
+        return getAllPurchases(null, null, null, null, pageable);
+    }
 
-        log.info(
-                "SERVICE - request came in getAllPurchases..."
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<ResponsePurchaseDTO> getAllPurchases(
+            UUID supplierPublicId,
+            PaymentStatus paymentStatus,
+            LocalDate fromDate,
+            LocalDate toDate,
+            org.springframework.data.domain.Pageable pageable
+    ) {
+        log.info("SERVICE - request came in getAllPurchases with filters...");
+        User currentUser = currentUserService.getCurrentUser();
+        User filterUser = (currentUser.getRole() == UserRole.ADMIN) ? null : currentUser;
+
+        Specification<Purchase> spec = PurchaseSpecification.filter(
+                filterUser,
+                supplierPublicId,
+                paymentStatus,
+                fromDate,
+                toDate
         );
 
-        User currentUser = currentUserService.getCurrentUser();
-
-        return purchaseRepo.findByUser(currentUser, pageable).map(this::mapToResponse);
+        return purchaseRepo.findAll(spec, pageable).map(this::mapToResponse);
     }
 
 
@@ -535,271 +558,195 @@ public class PurchaseService
             UUID publicId,
             RequestPurchaseDTO dto
     ) {
-
-        log.info(
-                "SERVICE - request came in updatePurchase..."
-        );
-
-
-        // -----------------------------------------------------
-        // FIND PURCHASE
-        // -----------------------------------------------------
+        log.info("SERVICE - request came in updatePurchase: {}", publicId);
 
         User currentUser = currentUserService.getCurrentUser();
-
         Purchase purchase;
 
         if (currentUser.getRole() == UserRole.ADMIN) {
             purchase = purchaseRepo.findByPublicId(publicId)
-                    .orElseThrow(() -> {
-                        log.info("SERVICE - purchase not found...");
-                        return new ResourceNotFoundException("Purchase not found");
-                    });
+                    .orElseThrow(() -> new ResourceNotFoundException("Purchase not found"));
         } else {
             purchase = purchaseRepo.findByUserAndPublicId(currentUser, publicId)
-                    .orElseThrow(() -> {
-                        log.info("SERVICE - purchase not found for current user...");
-                        return new ResourceNotFoundException("Purchase not found");
-                    });
+                    .orElseThrow(() -> new ResourceNotFoundException("Purchase not found"));
         }
 
-
-
         // -----------------------------------------------------
-        // PREVENT STOCK-AFFECTING CHANGES
+        // CHECK PAYMENT RESTRICTIONS ON SUPPLIER & TOTAL AMOUNT
         // -----------------------------------------------------
-
-        /*
-         * The original purchase has already generated:
-         *
-         * PURCHASE_IN
-         *
-         * Therefore raw material, quantity and unit cannot
-         * be changed directly.
-         *
-         * This keeps the stock ledger consistent.
-         */
-
-        if (!purchase.getRawMaterial()
-                .equalsIgnoreCase(
-                        dto.getRawMaterial().trim()
-                )) {
-
-            throw new InvalidRequestException(
-                    "Raw material cannot be changed after purchase creation"
-            );
-        }
-
-
-        if (purchase.getWeight()
-                .compareTo(
-                        dto.getWeight()
-                ) != 0) {
-
-            throw new InvalidRequestException(
-                    "Purchase quantity cannot be changed after purchase creation"
-            );
-        }
-
-
-        if (purchase.getUnit()
-                != dto.getUnit()) {
-
-            throw new InvalidRequestException(
-                    "Purchase unit cannot be changed after purchase creation"
-            );
-        }
-
-
-        // -----------------------------------------------------
-        // FIND ACTIVE SUPPLIER
-        // -----------------------------------------------------
+        BigDecimal paidAmount = purchasePaymentRepo.sumPaidAmountByPurchase(purchase);
+        boolean hasPayments = (paidAmount != null && paidAmount.compareTo(BigDecimal.ZERO) > 0)
+                || purchasePaymentRepo.existsByPurchase(purchase);
 
         Supplier supplier;
-
         if (currentUser.getRole() == UserRole.ADMIN) {
             supplier = supplierRepo.findByPublicIdAndIsActiveTrue(dto.getSupplierPublicId())
                     .orElseThrow(() -> new ResourceNotFoundException("Active supplier not found"));
         } else {
-            supplier = supplierRepo.findByUserAndPublicIdAndIsActiveTrue(
-                            currentUser,
-                            dto.getSupplierPublicId()
-                    )
+            supplier = supplierRepo.findByUserAndPublicIdAndIsActiveTrue(currentUser, dto.getSupplierPublicId())
                     .orElseThrow(() -> new ResourceNotFoundException("Active supplier not found"));
         }
 
+        // Rule: Only Supplier field should not be editable if payments have been recorded
+        if (hasPayments && !purchase.getSupplier().getPublicId().equals(supplier.getPublicId())) {
+            throw new InvalidRequestException(
+                    "Supplier cannot be changed because payments have already been recorded against this purchase."
+            );
+        }
 
         // -----------------------------------------------------
-        // SUPPLIER INVOICE NUMBER
+        // SUPPLIER INVOICE NUMBER VALIDATION
         // -----------------------------------------------------
-
-        String newInvoiceNumber =
-                dto.getSupplierInvoiceNumber();
-
+        String newInvoiceNumber = dto.getSupplierInvoiceNumber();
         if (newInvoiceNumber != null) {
-
-            newInvoiceNumber =
-                    newInvoiceNumber.trim();
-
+            newInvoiceNumber = newInvoiceNumber.trim();
             if (newInvoiceNumber.isBlank()) {
-
                 newInvoiceNumber = null;
             }
         }
 
-
-        String oldInvoiceNumber =
-                purchase.getSupplierInvoiceNumber();
-
-
-        boolean invoiceChanged =
-                !Objects.equals(
-                        oldInvoiceNumber,
-                        newInvoiceNumber
-                );
-
-
-        boolean supplierChanged =
-                !purchase.getSupplier()
-                        .getPublicId()
-                        .equals(
-                                supplier.getPublicId()
-                        );
-
-
-        /*
-         * Supplier invoice number is optional.
-         *
-         * Duplicate validation is only performed when
-         * an actual invoice number exists.
-         */
+        String oldInvoiceNumber = purchase.getSupplierInvoiceNumber();
+        boolean invoiceChanged = !Objects.equals(oldInvoiceNumber, newInvoiceNumber);
+        boolean supplierChanged = !purchase.getSupplier().getPublicId().equals(supplier.getPublicId());
 
         if ((invoiceChanged || supplierChanged)
                 && newInvoiceNumber != null
-                && purchaseRepo
-                .existsBySupplierInvoiceNumberAndSupplier(
-                        newInvoiceNumber,
-                        supplier
-                )) {
-
+                && purchaseRepo.existsBySupplierInvoiceNumberAndSupplier(newInvoiceNumber, supplier)) {
             throw new InvalidRequestException(
                     "Purchase with this supplier invoice number already exists"
             );
         }
 
+        // -----------------------------------------------------
+        // SYNCHRONIZE STOCK LEDGER IF MATERIAL / UNIT / WEIGHT CHANGED
+        // -----------------------------------------------------
+        String oldRawMaterial = purchase.getRawMaterial();
+        WeightUnit oldUnit = purchase.getUnit();
+        BigDecimal oldWeight = purchase.getWeight();
+
+        String newRawMaterial = dto.getRawMaterial().trim();
+        WeightUnit newUnit = dto.getUnit();
+        BigDecimal newWeight = dto.getWeight();
+
+        boolean materialChanged = !oldRawMaterial.equalsIgnoreCase(newRawMaterial) || oldUnit != newUnit;
+        if (materialChanged && hasPayments) {
+            throw new InvalidRequestException(
+                    "Raw material cannot be changed because payments have already been recorded against this purchase bill."
+            );
+        }
+
+        boolean stockChanged = materialChanged || oldWeight.compareTo(newWeight) != 0;
+
+        if (stockChanged) {
+            stockTransactionService.updatePurchaseStock(
+                    currentUser,
+                    oldRawMaterial,
+                    oldUnit,
+                    oldWeight,
+                    newRawMaterial,
+                    newUnit,
+                    newWeight,
+                    purchase.getPurchaseNumber()
+            );
+        }
 
         // -----------------------------------------------------
-        // UPDATE SUPPLIER
+        // RECALCULATE AMOUNT, GST & TOTAL
         // -----------------------------------------------------
+        BigDecimal amount = newWeight.multiply(dto.getRatePerUnit()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal gstAmount = amount.multiply(dto.getGstPercentage())
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        BigDecimal totalAmount = amount.add(gstAmount).setScale(2, RoundingMode.HALF_UP);
 
-        purchase.setSupplier(
-                supplier
-        );
-
-
-        // -----------------------------------------------------
-        // UPDATE NON-STOCK DETAILS
-        // -----------------------------------------------------
-
-        /*
-         * Raw material, weight and unit intentionally remain
-         * unchanged.
-         */
-
-        purchase.setRatePerUnit(
-                dto.getRatePerUnit()
-        );
-
-
-        purchase.setGstPercentage(
-                dto.getGstPercentage()
-        );
-
-
-        purchase.setSupplierInvoiceNumber(
-                newInvoiceNumber
-        );
-
-
-        purchase.setPurchaseDate(
-                dto.getPurchaseDate()
-        );
-
-
-        // -----------------------------------------------------
-        // RECALCULATE AMOUNT
-        // -----------------------------------------------------
-
-        BigDecimal amount =
-                purchase.getWeight()
-                        .multiply(
-                                dto.getRatePerUnit()
-                        )
-                        .setScale(
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        purchase.setAmount(
-                amount
-        );
-
-
-        // -----------------------------------------------------
-        // RECALCULATE GST
-        // -----------------------------------------------------
-
-        BigDecimal gstAmount =
-                amount
-                        .multiply(
-                                dto.getGstPercentage()
-                        )
-                        .divide(
-                                BigDecimal.valueOf(100),
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        purchase.setGstAmount(
-                gstAmount
-        );
-
-
-        // -----------------------------------------------------
-        // RECALCULATE TOTAL
-        // -----------------------------------------------------
-
-        BigDecimal totalAmount =
-                amount
-                        .add(gstAmount)
-                        .setScale(
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        purchase.setTotalAmount(
-                totalAmount
-        );
-
-
-        // -----------------------------------------------------
-        // SAVE
-        // -----------------------------------------------------
-
-        purchase =
-                purchaseRepo.save(
-                        purchase
+        if (paidAmount != null && paidAmount.compareTo(BigDecimal.ZERO) > 0) {
+            if (totalAmount.compareTo(paidAmount) < 0) {
+                throw new InvalidRequestException(
+                        "Updated total amount (₹" + totalAmount + ") cannot be less than the already paid amount (₹" + paidAmount + ")."
                 );
+            }
+        }
+
+        // -----------------------------------------------------
+        // UPDATE PURCHASE FIELDS
+        // -----------------------------------------------------
+        purchase.setSupplier(supplier);
+        purchase.setRawMaterial(newRawMaterial);
+        purchase.setWeight(newWeight);
+        purchase.setUnit(newUnit);
+        purchase.setRatePerUnit(dto.getRatePerUnit());
+        purchase.setGstPercentage(dto.getGstPercentage());
+        purchase.setSupplierInvoiceNumber(newInvoiceNumber);
+        purchase.setPurchaseDate(dto.getPurchaseDate());
+        purchase.setAmount(amount);
+        purchase.setGstAmount(gstAmount);
+        purchase.setTotalAmount(totalAmount);
+
+        // Update payment status
+        if (paidAmount == null || paidAmount.compareTo(BigDecimal.ZERO) == 0) {
+            purchase.setPaymentStatus(PaymentStatus.PENDING);
+        } else if (paidAmount.compareTo(totalAmount) >= 0) {
+            purchase.setPaymentStatus(PaymentStatus.COMPLETED);
+        } else {
+            purchase.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
+        }
+
+        purchase = purchaseRepo.save(purchase);
+        log.info("SERVICE - purchase updated successfully: {}", purchase.getPurchaseNumber());
+        return mapToResponse(purchase);
+    }
 
 
-        log.info(
-                "SERVICE - purchase updated successfully..."
+    // =========================================================
+    // DELETE PURCHASE
+    // =========================================================
+
+    @Override
+    @Transactional
+    public void deletePurchase(UUID publicId) {
+        log.info("SERVICE - request came in deletePurchase: {}", publicId);
+
+        User currentUser = currentUserService.getCurrentUser();
+        Purchase purchase;
+
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            purchase = purchaseRepo.findByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Purchase not found"));
+        } else {
+            purchase = purchaseRepo.findByUserAndPublicId(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Purchase not found"));
+        }
+
+        // -----------------------------------------------------
+        // VERIFY ZERO PAYMENTS
+        // -----------------------------------------------------
+        BigDecimal paidAmount = purchasePaymentRepo.sumPaidAmountByPurchase(purchase);
+        boolean hasPayments = (paidAmount != null && paidAmount.compareTo(BigDecimal.ZERO) > 0)
+                || purchasePaymentRepo.existsByPurchase(purchase);
+
+        if (hasPayments) {
+            throw new InvalidRequestException(
+                    "Cannot delete purchase #" + purchase.getPurchaseNumber() +
+                            ": Payments have already been recorded against this purchase. " +
+                            "Please delete or reverse all associated payments in the Purchase Payments tab before deleting this purchase."
+            );
+        }
+
+        // -----------------------------------------------------
+        // REVERT STOCK
+        // -----------------------------------------------------
+        stockTransactionService.revertPurchaseStock(
+                currentUser,
+                purchase.getRawMaterial(),
+                purchase.getUnit(),
+                purchase.getWeight(),
+                purchase.getPurchaseNumber()
         );
 
-
-        return mapToResponse(
-                purchase
-        );
+        // -----------------------------------------------------
+        // DELETE ENTITY
+        // -----------------------------------------------------
+        purchaseRepo.delete(purchase);
+        log.info("SERVICE - purchase {} deleted successfully", purchase.getPurchaseNumber());
     }
 
 
