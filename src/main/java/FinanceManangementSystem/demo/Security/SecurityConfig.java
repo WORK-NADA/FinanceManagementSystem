@@ -49,6 +49,7 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/", "/health", "/api/health").permitAll()
                         .requestMatchers("/user/login").permitAll()
                         .requestMatchers("/user/me").hasAnyAuthority("ADMIN","CLIENT")
                         .requestMatchers("/auth/refresh").permitAll()
