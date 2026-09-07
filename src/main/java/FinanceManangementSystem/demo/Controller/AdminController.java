@@ -72,4 +72,23 @@ public class AdminController {
         service.reactivateUser(publicId);
         return ResponseEntity.ok(new APIResponse<>("Client reactivated successfully...", null));
     }
+
+    @GetMapping("dashboard/stats")
+    public ResponseEntity<APIResponse<FinanceManangementSystem.demo.Payloads.ResponseDTO.AdminDashboardStatsDTO>> getDashboardStats() {
+        log.info("CONTROLLER - request came in getDashboardStats for Admin...");
+        return ResponseEntity.ok(new APIResponse<>("Admin dashboard statistics fetched successfully...", service.getAdminDashboardStats()));
+    }
+
+    @GetMapping("clients/{publicId}/360")
+    public ResponseEntity<APIResponse<FinanceManangementSystem.demo.Payloads.ResponseDTO.Client360DTO>> getClient360(@PathVariable UUID publicId) {
+        log.info("CONTROLLER - request came in getClient360 for publicId: {}", publicId);
+        return ResponseEntity.ok(new APIResponse<>("Client 360 profile fetched successfully...", service.getClient360(publicId)));
+    }
+
+    @PatchMapping("clients/{publicId}/unlock")
+    public ResponseEntity<APIResponse<Void>> unlockUser(@PathVariable UUID publicId) {
+        log.info("CONTROLLER - request came in unlockUser for publicId: {}", publicId);
+        service.unlockUser(publicId);
+        return ResponseEntity.ok(new APIResponse<>("Client account unlocked successfully...", null));
+    }
 }

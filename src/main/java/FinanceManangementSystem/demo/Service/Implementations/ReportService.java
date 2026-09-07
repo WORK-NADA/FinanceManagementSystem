@@ -105,15 +105,13 @@ public class ReportService implements ReportServiceInterface {
         log.info("SERVICE - request came in getProfitLossReport...");
         User currentUser = currentUserService.getCurrentUser();
 
-        List<Sale> sales = saleRepo.findByUserAndSaleDateBetween(currentUser, fromDate, toDate);
-        BigDecimal totalRevenue = sales.stream()
-                .map(s -> s.getTotalAmount() == null ? BigDecimal.ZERO : s.getTotalAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Revenue = actual cash received from customers in the date range (payment-based)
+        BigDecimal totalRevenue = salePaymentRepo.sumTotalReceivedByUserAndDateRange(currentUser, fromDate, toDate);
+        if (totalRevenue == null) totalRevenue = BigDecimal.ZERO;
 
-        List<Purchase> purchases = purchaseRepo.findByUserAndPurchaseDateBetween(currentUser, fromDate, toDate);
-        BigDecimal totalPurchaseCost = purchases.stream()
-                .map(p -> p.getTotalAmount() == null ? BigDecimal.ZERO : p.getTotalAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Purchase Cost = actual cash paid to suppliers in the date range (payment-based)
+        BigDecimal totalPurchaseCost = purchasePaymentRepo.sumTotalPaidByUserAndDateRange(currentUser, fromDate, toDate);
+        if (totalPurchaseCost == null) totalPurchaseCost = BigDecimal.ZERO;
 
         List<Expense> expenses = expenseRepo.findByUserAndExpenseDateBetweenAndIsActiveTrueOrderByExpenseDateDesc(currentUser, fromDate, toDate);
         BigDecimal totalExpenses = expenses.stream()
@@ -151,6 +149,10 @@ public class ReportService implements ReportServiceInterface {
                 })
                 .sorted((a, b) -> b.getAmount().compareTo(a.getAmount()))
                 .toList();
+
+        // Use invoice-list counts for informational purposes (unchanged)
+        List<Sale> sales = saleRepo.findByUserAndSaleDateBetween(currentUser, fromDate, toDate);
+        List<Purchase> purchases = purchaseRepo.findByUserAndPurchaseDateBetween(currentUser, fromDate, toDate);
 
         return ResponseProfitLossReportDTO.builder()
                 .totalRevenue(totalRevenue)

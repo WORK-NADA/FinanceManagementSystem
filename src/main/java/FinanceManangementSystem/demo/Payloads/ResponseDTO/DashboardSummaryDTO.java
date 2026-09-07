@@ -20,6 +20,8 @@ public class DashboardSummaryDTO {
     private BigDecimal totalMoneyPaid;
     private BigDecimal totalExpenses;
     private BigDecimal totalBalance;
+    private BigDecimal totalWithdrawals;
+    private BigDecimal netProfit;
 
     public DashboardSummaryDTO() {
     }
@@ -110,4 +112,10 @@ public class DashboardSummaryDTO {
 
     public BigDecimal getTotalBalance() { return totalBalance; }
     public void setTotalBalance(BigDecimal totalBalance) { this.totalBalance = totalBalance; }
+
+    public BigDecimal getTotalWithdrawals() { return totalWithdrawals; }
+    public void setTotalWithdrawals(BigDecimal totalWithdrawals) { this.totalWithdrawals = totalWithdrawals; }
+
+    public BigDecimal getNetProfit() { return netProfit; }
+    public void setNetProfit(BigDecimal netProfit) { this.netProfit = netProfit; }
 }

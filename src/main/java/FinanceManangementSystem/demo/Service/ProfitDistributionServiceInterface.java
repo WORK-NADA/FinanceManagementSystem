@@ -42,4 +42,6 @@ public interface ProfitDistributionServiceInterface {
             LocalDate fromDate,
             LocalDate toDate
     );
+
+    void deleteWithdrawal(UUID publicId);
 }

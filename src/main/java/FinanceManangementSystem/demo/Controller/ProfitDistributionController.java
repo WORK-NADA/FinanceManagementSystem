@@ -127,4 +127,13 @@ public class ProfitDistributionController {
 
         return ResponseEntity.ok(new APIResponse<>("Withdrawal history fetched", list));
     }
+
+    @DeleteMapping("/withdrawals/{publicId}")
+    public ResponseEntity<APIResponse<Void>> deleteWithdrawal(@PathVariable UUID publicId) {
+        log.info("CONTROLLER - request came in deleteWithdrawal... publicId={}", publicId);
+
+        distributionService.deleteWithdrawal(publicId);
+
+        return ResponseEntity.ok(new APIResponse<>("Profit withdrawal deleted successfully", null));
+    }
 }

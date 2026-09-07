@@ -54,6 +54,9 @@ public interface SalePaymentRepository
             @Param("user") User user
     );
 
+    @Query("SELECT COALESCE(SUM(p.amountReceived), 0) FROM SalePayment p")
+    BigDecimal sumTotalReceived();
+
     @Query("SELECT COALESCE(SUM(p.amountReceived), 0) FROM SalePayment p WHERE p.user = :user AND p.paymentDate BETWEEN :fromDate AND :toDate")
     BigDecimal sumTotalReceivedByUserAndDateRange(
             @Param("user") User user,

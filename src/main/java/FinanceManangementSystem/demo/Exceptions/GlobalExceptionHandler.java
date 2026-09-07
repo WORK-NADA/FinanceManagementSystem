@@ -152,7 +152,7 @@ public class GlobalExceptionHandler {
 
         ErrorResponse resp = new ErrorResponse(
                 "INVALID_CREDENTIALS",
-                "Invalid email or password"
+                "Incorrect email or password. Please check your details and try again."
         );
 
         return ResponseEntity

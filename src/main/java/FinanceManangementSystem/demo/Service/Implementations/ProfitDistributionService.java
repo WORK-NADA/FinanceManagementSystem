@@ -107,9 +107,6 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
 
         BigDecimal netProfit = totalRevenue.subtract(totalPurchaseCost).subtract(totalExpenses);
-        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
-            netProfit = BigDecimal.ZERO;
-        }
 
         List<Partner> sortedPartners = new ArrayList<>(activePartners);
         sortedPartners.sort(Comparator.comparing(p -> p.getPublicId().toString()));
@@ -196,10 +193,6 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
 
         BigDecimal netProfit = totalRevenue.subtract(totalPurchaseCost).subtract(totalExpenses);
-
-        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
-            netProfit = BigDecimal.ZERO;
-        }
 
         ProfitDistribution dist;
         if (isRecalculation) {
@@ -435,9 +428,6 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
 
         BigDecimal netProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
-        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
-            netProfit = BigDecimal.ZERO;
-        }
 
         List<Partner> partners = partnerRepo.findByUser(currentUser);
         partners.sort(Comparator.comparing(Partner::getIsActive, Comparator.reverseOrder())
@@ -454,9 +444,6 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
             if (withdrawn == null) withdrawn = BigDecimal.ZERO;
 
             BigDecimal remaining = earned.subtract(withdrawn);
-            if (remaining.compareTo(BigDecimal.ZERO) < 0) {
-                remaining = BigDecimal.ZERO;
-            }
 
             totalEarnedAll = totalEarnedAll.add(earned);
             totalWithdrawnAll = totalWithdrawnAll.add(withdrawn);
@@ -476,12 +463,30 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
             partnerDTOs.add(pDto);
         }
 
+        // Exact penny remainder handling for active partners if active shares sum to 100%
+        BigDecimal remainder = netProfit.subtract(totalEarnedAll);
+        if (remainder.compareTo(BigDecimal.ZERO) != 0 && !partnerDTOs.isEmpty()) {
+            for (int i = partnerDTOs.size() - 1; i >= 0; i--) {
+                LiveProfitSharingOverviewDTO.PartnerLiveProfitDTO lastP = partnerDTOs.get(i);
+                if (lastP.isActive()) {
+                    BigDecimal adjEarned = lastP.getTotalEarnedProfit().add(remainder);
+                    lastP.setTotalEarnedProfit(adjEarned);
+                    BigDecimal adjRemaining = adjEarned.subtract(lastP.getTotalWithdrawnProfit());
+                    lastP.setRemainingProfitAvailable(adjRemaining);
+                    totalEarnedAll = totalEarnedAll.add(remainder);
+                    totalRemainingAll = totalRemainingAll.add(remainder);
+                    break;
+                }
+            }
+        }
+
         LiveProfitSharingOverviewDTO overview = new LiveProfitSharingOverviewDTO();
         overview.setTotalMoneyReceived(totalReceived);
         overview.setTotalMoneyPaid(totalPaid);
         overview.setTotalSalesRevenue(totalReceived);
         overview.setTotalPurchasesCost(totalPaid);
         overview.setTotalExpenses(totalExpenses);
+        // Net profit = actual cash received − actual cash paid − expenses (no withdrawals deducted)
         overview.setNetProfit(netProfit);
         overview.setTotalDistributedProfit(totalEarnedAll);
         overview.setTotalProfitWithdrawn(totalWithdrawnAll);
@@ -511,22 +516,20 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         BigDecimal totalExpenses = expenseRepo.sumTotalExpensesByUserAndDateRange(currentUser, null, null);
         if (totalExpenses == null) totalExpenses = BigDecimal.ZERO;
 
-        BigDecimal netProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
-        if (netProfit.compareTo(BigDecimal.ZERO) < 0) {
-            netProfit = BigDecimal.ZERO;
-        }
+        BigDecimal liveNetProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
 
-        BigDecimal totalEarned = calculateLiveEarnedProfit(partner, netProfit);
+        BigDecimal totalEarned = calculateLiveEarnedProfit(partner, liveNetProfit);
         BigDecimal totalWithdrawn = withdrawalRepo.sumWithdrawnByPartnerAndUser(partner, currentUser);
         if (totalWithdrawn == null) totalWithdrawn = BigDecimal.ZERO;
 
         BigDecimal available = totalEarned.subtract(totalWithdrawn);
-        if (available.compareTo(BigDecimal.ZERO) < 0) {
-            available = BigDecimal.ZERO;
-        }
 
         if (dto.getAmount() == null || dto.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new InvalidRequestException("Withdrawal amount must be greater than 0");
+        }
+
+        if (available.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidRequestException("Withdrawal not allowed: no profit is currently available for this partner (available: " + available + ")");
         }
 
         if (dto.getAmount().compareTo(available) > 0) {
@@ -570,8 +573,29 @@ public class ProfitDistributionService implements ProfitDistributionServiceInter
         return list.stream().map(this::mapToWithdrawalResponse).collect(Collectors.toList());
     }
 
+    @Override
+    @Transactional
+    public void deleteWithdrawal(UUID publicId) {
+        log.info("SERVICE - request came in deleteWithdrawal for publicId: {}", publicId);
+        User currentUser = currentUserService.getCurrentUser();
+
+        PartnerProfitWithdrawal withdrawal;
+        if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
+            withdrawal = withdrawalRepo.findAll().stream()
+                    .filter(w -> publicId.equals(w.getPublicId()))
+                    .findFirst()
+                    .orElseThrow(() -> new ResourceNotFoundException("Profit withdrawal record not found"));
+        } else {
+            withdrawal = withdrawalRepo.findByUserAndPublicId(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Profit withdrawal record not found"));
+        }
+
+        withdrawalRepo.delete(withdrawal);
+        log.info("SERVICE - successfully deleted profit withdrawal: {}", publicId);
+    }
+
     private BigDecimal calculateLiveEarnedProfit(Partner partner, BigDecimal netProfit) {
-        if (Boolean.TRUE.equals(partner.getIsActive()) && partner.getSharePercentage() != null && netProfit.compareTo(BigDecimal.ZERO) > 0) {
+        if (Boolean.TRUE.equals(partner.getIsActive()) && partner.getSharePercentage() != null) {
             return netProfit.multiply(partner.getSharePercentage())
                     .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         }

@@ -20,30 +20,39 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepo;
 
-    @Transactional
+    @Transactional(readOnly = true)
     @Override
     public UserDetails loadUserByUsername(String email)
             throws UsernameNotFoundException {
 
         log.debug("CustomUserDetailsService - Loading user details for email: {}", email);
 
-        User user = userRepo.findByEmail(email)
+        String normalizedEmail = email != null ? email.trim().toLowerCase() : "";
+
+        User user = userRepo.findByEmail(normalizedEmail)
+                .filter(u -> !Boolean.TRUE.equals(u.getDeleted()))
                 .orElseThrow(() -> {
-
-                    log.warn("CustomUserDetailsService - User not found with email: {}", email);
-
+                    log.warn("CustomUserDetailsService - User not found or deleted with email: {}", normalizedEmail);
                     return new UsernameNotFoundException(
-                            "User not found with email: " + email
+                            "Incorrect email or password. Please check your details and try again."
                     );
                 });
 
-        log.info("CustomUserDetailsService - User loaded successfully: {}", email);
-
+        log.info("CustomUserDetailsService - User loaded successfully: {}", normalizedEmail);
         log.debug("CustomUserDetailsService - Assigned role: {}", user.getRole().name());
+
+        boolean enabled = Boolean.TRUE.equals(user.getEnabled()) && !Boolean.TRUE.equals(user.getDeleted());
+        boolean accountNonExpired = Boolean.TRUE.equals(user.getAccountNonExpired());
+        boolean credentialsNonExpired = Boolean.TRUE.equals(user.getCredentialsNonExpired());
+        boolean accountNonLocked = Boolean.TRUE.equals(user.getAccountNonLocked());
 
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),
                 user.getPassword(),
+                enabled,
+                accountNonExpired,
+                credentialsNonExpired,
+                accountNonLocked,
                 List.of(
                         new SimpleGrantedAuthority(
                                 user.getRole().name()

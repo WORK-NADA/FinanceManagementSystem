@@ -18,7 +18,9 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,19 +54,23 @@ public class CommonService implements CommonServiceInterface {
     public ResponseLoginDTO login(RequestLoginDTO dto) {
         log.info("SERVICE - request came in login...");
 
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        dto.getEmail(),
-                        dto.getPassword()
-                )
-        );
+        String normalizedEmail = dto.getEmail() != null ? dto.getEmail().trim().toLowerCase() : "";
 
-        Optional<User> checkUser = userRepo.findByEmail(dto.getEmail());
-        if(checkUser.isEmpty()){
-            throw new ResourceNotFoundException("User not found...");
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            normalizedEmail,
+                            dto.getPassword()
+                    )
+            );
+        } catch (AuthenticationException ex) {
+            log.warn("SERVICE - Authentication failed for email: {}", normalizedEmail);
+            throw new BadCredentialsException("Incorrect email or password. Please check your details and try again.");
         }
 
-        User user = checkUser.get();
+        User user = userRepo.findByEmail(normalizedEmail)
+                .filter(u -> !Boolean.TRUE.equals(u.getDeleted()) && Boolean.TRUE.equals(u.getEnabled()))
+                .orElseThrow(() -> new BadCredentialsException("Incorrect email or password. Please check your details and try again."));
 
         // Access Token
         String token =

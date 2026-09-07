@@ -60,33 +60,37 @@ public class JwtFilter extends OncePerRequestFilter {
 
                 log.debug("JwtFilter - Loading user details for email: {}", email);
 
-                UserDetails userDetails =
-                        userDetailsService.loadUserByUsername(email);
+                try {
+                    UserDetails userDetails =
+                            userDetailsService.loadUserByUsername(email);
 
-                if (jwtUtil.validateToken(token, userDetails)) {
+                    if (jwtUtil.validateToken(token, userDetails) && userDetails.isEnabled() && userDetails.isAccountNonLocked()) {
 
-                    log.info("JwtFilter - JWT validated successfully for user: {}", email);
+                        log.info("JwtFilter - JWT validated successfully for user: {}", email);
 
-                    UsernamePasswordAuthenticationToken authToken =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities()
-                            );
+                        UsernamePasswordAuthenticationToken authToken =
+                                new UsernamePasswordAuthenticationToken(
+                                        userDetails,
+                                        null,
+                                        userDetails.getAuthorities()
+                                );
 
-                    authToken.setDetails(
-                            new WebAuthenticationDetailsSource()
-                                    .buildDetails(request)
-                    );
+                        authToken.setDetails(
+                                new WebAuthenticationDetailsSource()
+                                        .buildDetails(request)
+                        );
 
-                    SecurityContextHolder.getContext()
-                            .setAuthentication(authToken);
+                        SecurityContextHolder.getContext()
+                                .setAuthentication(authToken);
 
-                    log.debug("JwtFilter - Security context updated for user: {}", email);
+                        log.debug("JwtFilter - Security context updated for user: {}", email);
 
-                } else {
+                    } else {
 
-                    log.warn("JwtFilter - JWT validation failed for user: {}", email);
+                        log.warn("JwtFilter - JWT validation failed for user: {}", email);
+                    }
+                } catch (Exception e) {
+                    log.warn("JwtFilter - Could not authenticate user with token: {}", e.getMessage());
                 }
             }
 

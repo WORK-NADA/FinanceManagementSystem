@@ -12,7 +12,7 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User,Long> {
 
-    @Query(value = "SELECT * FROM users WHERE email = ?1", nativeQuery = true)
+    @Query(value = "SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?1))", nativeQuery = true)
     Optional<User> findByEmail(String email);
 
     // ?1 = email, ?2 = contact — matches method signature (email, contact)
