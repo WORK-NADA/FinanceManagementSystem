@@ -12,11 +12,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.UUID;
 
 @Repository
 public interface ExpenseRepository
-        extends JpaRepository<Expense, Long> {
+        extends JpaRepository<Expense, Long>, JpaSpecificationExecutor<Expense> {
 
     Optional<Expense> findByPublicId(
             UUID publicId
@@ -62,21 +63,28 @@ public interface ExpenseRepository
             String expenseNumber
     );
 
-    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.isActive = true AND e.expenseDate BETWEEN :fromDate AND :toDate")
+    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.isActive = true AND (:fromDate IS NULL OR e.expenseDate >= :fromDate) AND (:toDate IS NULL OR e.expenseDate <= :toDate)")
     BigDecimal sumTotalExpensesByDateRange(
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
     );
 
-    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND e.isActive = true AND e.expenseDate BETWEEN :fromDate AND :toDate")
+    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND e.isActive = true AND (:fromDate IS NULL OR e.expenseDate >= :fromDate) AND (:toDate IS NULL OR e.expenseDate <= :toDate)")
     BigDecimal sumTotalExpensesByUserAndDateRange(
             @Param("user") User user,
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
     );
 
-    @Query("SELECT e.category, COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.isActive = true AND e.expenseDate BETWEEN :fromDate AND :toDate GROUP BY e.category")
+    @Query("SELECT e.category, COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.isActive = true AND (:fromDate IS NULL OR e.expenseDate >= :fromDate) AND (:toDate IS NULL OR e.expenseDate <= :toDate) GROUP BY e.category")
     List<Object[]> findCategoryWiseBreakdownByDateRange(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate
+    );
+
+    @Query("SELECT e.category, COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.user = :user AND e.isActive = true AND (:fromDate IS NULL OR e.expenseDate >= :fromDate) AND (:toDate IS NULL OR e.expenseDate <= :toDate) GROUP BY e.category")
+    List<Object[]> findCategoryWiseBreakdownByUserAndDateRange(
+            @Param("user") User user,
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
     );

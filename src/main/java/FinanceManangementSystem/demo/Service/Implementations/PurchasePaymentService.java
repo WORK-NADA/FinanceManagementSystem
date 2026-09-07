@@ -5,6 +5,7 @@ import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
 
 import FinanceManangementSystem.demo.Enums.DocumentType;
 import FinanceManangementSystem.demo.Enums.PaymentStatus;
+import FinanceManangementSystem.demo.Enums.UserRole;
 import FinanceManangementSystem.demo.Model.Purchase;
 import FinanceManangementSystem.demo.Model.PurchasePayment;
 import FinanceManangementSystem.demo.Model.Supplier;
@@ -20,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -124,14 +127,14 @@ public class PurchasePaymentService
 
 
         // -----------------------------------------------------
-        // GENERATE REFERENCE NUMBER
+        // GENERATE PAYMENT NUMBER (system-assigned, sequential)
         // -----------------------------------------------------
 
         int year =
                 dto.getPaymentDate()
                         .getYear();
 
-        String referenceNumber =
+        String paymentNumber =
                 documentSequenceService
                         .generateDocumentNumber(
                                 DocumentType.PURCHASE_PAYMENT,
@@ -164,8 +167,12 @@ public class PurchasePaymentService
                 dto.getPaymentMode()
         );
 
+        payment.setPaymentNumber(
+                paymentNumber
+        );
+
         payment.setReferenceNumber(
-                referenceNumber
+                dto.getReferenceNumber() != null ? dto.getReferenceNumber().trim() : null
         );
 
         payment.setRemarks(
@@ -468,7 +475,7 @@ public class PurchasePaymentService
 
         Supplier supplier;
 
-        if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
+        if (currentUser.getRole() == UserRole.ADMIN) {
             supplier = supplierRepo.findByPublicIdAndIsActiveTrue(supplierPublicId)
                     .orElseThrow(() -> new ResourceNotFoundException("Active supplier not found"));
             List<Purchase> pendingPurchases = purchaseRepo.findBySupplierAndPaymentStatusIn(supplier, List.of(
@@ -564,6 +571,16 @@ public class PurchasePaymentService
 
         details.setPurchaseNumber(
                 purchase.getPurchaseNumber()
+        );
+
+        details.setSupplierName(
+                purchase.getSupplier() != null
+                        ? purchase.getSupplier().getSupplierName()
+                        : null
+        );
+
+        details.setPurchaseDate(
+                purchase.getPurchaseDate()
         );
 
         details.setTotalAmount(

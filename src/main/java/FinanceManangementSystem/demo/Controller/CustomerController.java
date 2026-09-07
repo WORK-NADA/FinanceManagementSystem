@@ -11,6 +11,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePartyStatementDTO;
+import org.springframework.format.annotation.DateTimeFormat;
+
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -266,6 +270,36 @@ public class CustomerController {
                         new APIResponse<>(
                                 "Customer reactivated successfully...",
                                 null
+                        )
+                );
+    }
+
+
+    // =========================================================
+    // GET CUSTOMER STATEMENT (LEDGER)
+    // =========================================================
+
+    @GetMapping("/{publicId}/statement")
+    public ResponseEntity<APIResponse<ResponsePartyStatementDTO>> getCustomerStatement(
+            @PathVariable UUID publicId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+
+        log.info(
+                "CONTROLLER - request came in getCustomerStatement for publicId={}, fromDate={}, toDate={}",
+                publicId, fromDate, toDate
+        );
+
+        ResponsePartyStatementDTO response =
+                customerService.getCustomerStatement(publicId, fromDate, toDate);
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Customer statement fetched successfully...",
+                                response
                         )
                 );
     }

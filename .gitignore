@@ -1,5 +1,8 @@
 # Ignore compiled classes and build output  
-target/  
+target/
+*.class
+*.jar
+*.war
 # Ignore IDE workspace settings  
 .idea/workspace.xml  
 # Ignore secret properties file  

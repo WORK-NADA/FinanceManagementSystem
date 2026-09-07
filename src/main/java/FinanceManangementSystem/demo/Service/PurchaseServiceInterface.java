@@ -1,5 +1,6 @@
 package FinanceManangementSystem.demo.Service;
 
+import FinanceManangementSystem.demo.Enums.PaymentStatus;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestPurchaseDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePurchaseDTO;
 
@@ -33,7 +34,17 @@ public interface PurchaseServiceInterface {
     // GET ALL PURCHASES
     // =========================================================
 
-        Page<ResponsePurchaseDTO> getAllPurchases(Pageable pageable);
+    default Page<ResponsePurchaseDTO> getAllPurchases(Pageable pageable) {
+        return getAllPurchases(null, null, null, null, pageable);
+    }
+
+    Page<ResponsePurchaseDTO> getAllPurchases(
+            UUID supplierPublicId,
+            PaymentStatus status,
+            LocalDate fromDate,
+            LocalDate toDate,
+            Pageable pageable
+    );
 
 
     // =========================================================
@@ -71,5 +82,14 @@ public interface PurchaseServiceInterface {
     ResponsePurchaseDTO updatePurchase(
             UUID publicId,
             RequestPurchaseDTO dto
+    );
+
+
+    // =========================================================
+    // DELETE PURCHASE
+    // =========================================================
+
+    void deletePurchase(
+            UUID publicId
     );
 }

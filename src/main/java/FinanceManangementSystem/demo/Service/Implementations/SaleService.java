@@ -1,5 +1,6 @@
 package FinanceManangementSystem.demo.Service.Implementations;
 
+import FinanceManangementSystem.demo.Enums.WeightUnit;
 import FinanceManangementSystem.demo.Exceptions.InvalidRequestException;
 import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
 
@@ -12,17 +13,22 @@ import FinanceManangementSystem.demo.Model.User;
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestSaleDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseSaleDTO;
 import FinanceManangementSystem.demo.Repository.CustomerRepository;
+import FinanceManangementSystem.demo.Repository.SalePaymentRepository;
 import FinanceManangementSystem.demo.Repository.SaleRepository;
 import FinanceManangementSystem.demo.Service.SaleServiceInterface;
 import FinanceManangementSystem.demo.Service.StockTransactionServiceInterface;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
+import org.springframework.data.jpa.domain.Specification;
+import FinanceManangementSystem.demo.Specification.SaleSpecification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -35,6 +41,8 @@ public class SaleService
     private final SaleRepository saleRepo;
 
     private final CustomerRepository customerRepo;
+
+    private final SalePaymentRepository salePaymentRepo;
 
     private final CurrentUserService currentUserService;
 
@@ -323,14 +331,50 @@ public class SaleService
     @Override
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<ResponseSaleDTO> getAllSales(org.springframework.data.domain.Pageable pageable) {
+        return getAllSales(null, null, null, null, pageable);
+    }
 
-        log.info(
-                "SERVICE - request came in getAllSales..."
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<ResponseSaleDTO> getAllSales(
+            UUID customerPublicId,
+            PaymentStatus paymentStatus,
+            LocalDate fromDate,
+            LocalDate toDate,
+            org.springframework.data.domain.Pageable pageable
+    ) {
+        log.info("SERVICE - request came in getAllSales with filters...");
+        User currentUser = currentUserService.getCurrentUser();
+        User filterUser = (currentUser.getRole() == UserRole.ADMIN) ? null : currentUser;
+
+        Specification<Sale> spec = SaleSpecification.filter(
+                filterUser,
+                customerPublicId,
+                paymentStatus,
+                fromDate,
+                toDate
         );
 
-        User currentUser = currentUserService.getCurrentUser();
+        return saleRepo.findAll(spec, pageable).map(this::mapToResponse);
+    }
 
-        return saleRepo.findByUser(currentUser, pageable).map(this::mapToResponse);
+    @Override
+    @Transactional(readOnly = true)
+    public List<ResponseSaleDTO> getSalesByCustomer(UUID customerPublicId) {
+        log.info("SERVICE - request came in getSalesByCustomer...");
+        User currentUser = currentUserService.getCurrentUser();
+        Customer customer;
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            customer = customerRepo.findByPublicId(customerPublicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        } else {
+            customer = customerRepo.findByUserAndPublicId(currentUser, customerPublicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        }
+        return saleRepo.findByUser(currentUser).stream()
+                .filter(s -> s.getCustomer() != null && s.getCustomer().getPublicId().equals(customer.getPublicId()))
+                .map(this::mapToResponse)
+                .toList();
     }
 
 
@@ -374,198 +418,190 @@ public class SaleService
 
 
         // -----------------------------------------------------
-        // PREVENT STOCK-AFFECTING CHANGES
+        // CHECK PAYMENT RESTRICTIONS
         // -----------------------------------------------------
-
-        if (!sale.getRawMaterial()
-                .equalsIgnoreCase(
-                        dto.getRawMaterial().trim()
-                )) {
-
-            throw new InvalidRequestException(
-                    "Raw material cannot be updated after sale creation. Stock ledger already updated."
-            );
+        BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
+        if (receivedAmount == null) {
+            receivedAmount = BigDecimal.ZERO;
         }
-
-        if (sale.getUnit() != dto.getUnit()) {
-
-            throw new InvalidRequestException(
-                    "Weight unit cannot be updated after sale creation. Stock ledger already updated."
-            );
-        }
-
-        if (sale.getWeight().compareTo(dto.getWeight()) != 0) {
-
-            throw new InvalidRequestException(
-                    "Weight cannot be updated after sale creation. Stock ledger already updated."
-            );
-        }
-
+        boolean hasPayments = receivedAmount.compareTo(BigDecimal.ZERO) > 0
+                || salePaymentRepo.existsBySale(sale);
 
         // -----------------------------------------------------
-        // UPDATE CUSTOMER IF CHANGED
+        // UPDATE CUSTOMER IF CHANGED (Only if NO payment received)
         // -----------------------------------------------------
+        Customer currentCustomer = sale.getCustomer();
+        boolean customerChanged = !currentCustomer.getPublicId().equals(dto.getCustomerPublicId());
 
-        Customer currentCustomer =
-                sale.getCustomer();
+        if (customerChanged) {
+            if (hasPayments) {
+                throw new InvalidRequestException(
+                        "Customer cannot be changed because payments have already been recorded against this sale invoice."
+                );
+            }
 
-        if (!currentCustomer
-                .getPublicId()
-                .equals(dto.getCustomerPublicId())) {
-
-            log.info(
-                    "SERVICE - customer changed, fetching new active customer..."
-            );
-
-            Customer newCustomer =
-                    customerRepo
-                            .findByUserAndPublicIdAndIsActiveTrue(
-                                    currentUser,
-                                    dto.getCustomerPublicId()
-                            )
-                            .orElseThrow(() -> new InvalidRequestException(
-                                    "Active customer not found"
-                            ));
+            log.info("SERVICE - customer changed, fetching new active customer...");
+            Customer newCustomer;
+            if (currentUser.getRole() == UserRole.ADMIN) {
+                newCustomer = customerRepo.findByPublicIdAndIsActiveTrue(dto.getCustomerPublicId())
+                        .orElseThrow(() -> new InvalidRequestException("Active customer not found"));
+            } else {
+                newCustomer = customerRepo.findByUserAndPublicIdAndIsActiveTrue(currentUser, dto.getCustomerPublicId())
+                        .orElseThrow(() -> new InvalidRequestException("Active customer not found"));
+            }
 
             sale.setCustomer(newCustomer);
         }
 
+        // -----------------------------------------------------
+        // RAW MATERIAL & UNIT VALIDATION
+        // -----------------------------------------------------
+        String oldRawMaterial = sale.getRawMaterial();
+        WeightUnit oldUnit = sale.getUnit();
+        BigDecimal oldWeight = sale.getWeight();
+
+        String newRawMaterial = dto.getRawMaterial().trim();
+        WeightUnit newUnit = dto.getUnit();
+        BigDecimal newWeight = dto.getWeight();
+
+        boolean materialChanged = !oldRawMaterial.equalsIgnoreCase(newRawMaterial) || oldUnit != newUnit;
+        if (materialChanged && hasPayments) {
+            throw new InvalidRequestException(
+                    "Raw material cannot be changed because payments have already been recorded against this sale invoice."
+            );
+        }
+
+        // -----------------------------------------------------
+        // SYNCHRONIZE STOCK LEDGER IF WEIGHT / QUANTITY / MATERIAL CHANGED
+        // -----------------------------------------------------
+        boolean stockChanged = materialChanged || oldWeight.compareTo(newWeight) != 0;
+
+        if (stockChanged) {
+            stockTransactionService.updateSaleStock(
+                    currentUser,
+                    oldRawMaterial,
+                    oldUnit,
+                    oldWeight,
+                    newRawMaterial,
+                    newUnit,
+                    newWeight,
+                    sale.getSaleNumber()
+            );
+            sale.setRawMaterial(newRawMaterial);
+            sale.setUnit(newUnit);
+            sale.setWeight(newWeight);
+        }
 
         // -----------------------------------------------------
         // CHECK CUSTOMER INVOICE NUMBER
         // -----------------------------------------------------
-
-        String newCustomerInvoiceNumber =
-                dto.getCustomerInvoiceNumber();
-
+        String newCustomerInvoiceNumber = dto.getCustomerInvoiceNumber();
         if (newCustomerInvoiceNumber != null) {
-
-            newCustomerInvoiceNumber =
-                    newCustomerInvoiceNumber.trim();
+            newCustomerInvoiceNumber = newCustomerInvoiceNumber.trim();
+            if (newCustomerInvoiceNumber.isBlank()) {
+                newCustomerInvoiceNumber = null;
+            }
         }
 
-        String existingCustomerInvoiceNumber =
-                sale.getCustomerInvoiceNumber();
+        String existingCustomerInvoiceNumber = sale.getCustomerInvoiceNumber();
+        boolean invoiceNumberChanged = !Objects.equals(existingCustomerInvoiceNumber, newCustomerInvoiceNumber);
 
-        if (!Objects.equals(
-                existingCustomerInvoiceNumber,
-                newCustomerInvoiceNumber
-        )) {
+        if ((invoiceNumberChanged || customerChanged)
+                && newCustomerInvoiceNumber != null
+                && saleRepo.existsByCustomerInvoiceNumberAndCustomer(newCustomerInvoiceNumber, sale.getCustomer())) {
+            throw new InvalidRequestException("Sale with this customer reference / invoice number already exists");
+        }
 
-            if (newCustomerInvoiceNumber != null
-                    && !newCustomerInvoiceNumber.isBlank()) {
+        sale.setCustomerInvoiceNumber(newCustomerInvoiceNumber);
 
-                boolean exists =
-                        saleRepo
-                                .existsByCustomerInvoiceNumberAndCustomer(
-                                        newCustomerInvoiceNumber,
-                                        sale.getCustomer()
-                                );
+        // -----------------------------------------------------
+        // RE-CALCULATE AMOUNT, GST & TOTAL
+        // -----------------------------------------------------
+        BigDecimal amount = newWeight.multiply(dto.getRatePerUnit()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal gstAmount = amount.multiply(dto.getGstPercentage())
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        BigDecimal totalAmount = amount.add(gstAmount).setScale(2, RoundingMode.HALF_UP);
 
-                if (exists) {
-
-                    throw new InvalidRequestException(
-                            "Sale with this customer invoice number already exists"
-                    );
-                }
-            }
-
-            sale.setCustomerInvoiceNumber(
-                    newCustomerInvoiceNumber
+        if (hasPayments && totalAmount.compareTo(receivedAmount) < 0) {
+            throw new InvalidRequestException(
+                    "Updated total amount (₹" + totalAmount + ") cannot be less than the already received amount (₹" + receivedAmount + ")."
             );
         }
 
+        sale.setRatePerUnit(dto.getRatePerUnit());
+        sale.setGstPercentage(dto.getGstPercentage());
+        sale.setSaleDate(dto.getSaleDate());
+        sale.setAmount(amount);
+        sale.setGstAmount(gstAmount);
+        sale.setTotalAmount(totalAmount);
+
+        // Update payment status
+        if (receivedAmount == null || receivedAmount.compareTo(BigDecimal.ZERO) == 0) {
+            sale.setPaymentStatus(PaymentStatus.PENDING);
+        } else if (receivedAmount.compareTo(totalAmount) >= 0) {
+            sale.setPaymentStatus(PaymentStatus.COMPLETED);
+        } else {
+            sale.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
+        }
+
+        sale = saleRepo.save(sale);
+        log.info("SERVICE - sale updated successfully: {}", sale.getSaleNumber());
+
+        return mapToResponse(sale);
+    }
+
+
+    // =========================================================
+    // DELETE SALE
+    // =========================================================
+
+    @Override
+    @Transactional
+    public void deleteSale(UUID publicId) {
+        log.info("SERVICE - request came in deleteSale: {}", publicId);
+
+        User currentUser = currentUserService.getCurrentUser();
+        Sale sale;
+
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            sale = saleRepo.findByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Sale not found"));
+        } else {
+            sale = saleRepo.findByUserAndPublicId(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Sale not found"));
+        }
 
         // -----------------------------------------------------
-        // UPDATE NON-STOCK FIELDS
+        // VERIFY ZERO PAYMENTS
         // -----------------------------------------------------
+        BigDecimal receivedAmount = salePaymentRepo.sumReceivedAmountBySale(sale);
+        boolean hasPayments = (receivedAmount != null && receivedAmount.compareTo(BigDecimal.ZERO) > 0)
+                || salePaymentRepo.existsBySale(sale);
 
-        sale.setRatePerUnit(
-                dto.getRatePerUnit()
+        if (hasPayments) {
+            throw new InvalidRequestException(
+                    "Cannot delete sale invoice #" + sale.getSaleNumber() +
+                            ": Payments have already been received against this sale invoice. " +
+                            "Please delete or reverse all associated payments in Customer Payments before deleting this sale invoice."
+            );
+        }
+
+        // -----------------------------------------------------
+        // REVERT STOCK (Return sold goods back to inventory)
+        // -----------------------------------------------------
+        stockTransactionService.revertSaleStock(
+                currentUser,
+                sale.getRawMaterial(),
+                sale.getUnit(),
+                sale.getWeight(),
+                sale.getSaleNumber()
         );
 
-        sale.setGstPercentage(
-                dto.getGstPercentage()
-        );
-
-        sale.setSaleDate(
-                dto.getSaleDate()
-        );
-
-
         // -----------------------------------------------------
-        // RE-CALCULATE AMOUNT
+        // DELETE ENTITY
         // -----------------------------------------------------
-
-        BigDecimal amount =
-                sale.getWeight()
-                        .multiply(
-                                dto.getRatePerUnit()
-                        )
-                        .setScale(
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        sale.setAmount(
-                amount
-        );
-
-
-        // -----------------------------------------------------
-        // RE-CALCULATE GST
-        // -----------------------------------------------------
-
-        BigDecimal gstAmount =
-                amount
-                        .multiply(
-                                dto.getGstPercentage()
-                        )
-                        .divide(
-                                BigDecimal.valueOf(100),
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        sale.setGstAmount(
-                gstAmount
-        );
-
-
-        // -----------------------------------------------------
-        // RE-CALCULATE TOTAL
-        // -----------------------------------------------------
-
-        BigDecimal totalAmount =
-                amount
-                        .add(gstAmount)
-                        .setScale(
-                                2,
-                                RoundingMode.HALF_UP
-                        );
-
-        sale.setTotalAmount(
-                totalAmount
-        );
-
-
-        // -----------------------------------------------------
-        // SAVE SALE
-        // -----------------------------------------------------
-
-        sale =
-                saleRepo.save(
-                        sale
-                );
-
-        log.info(
-                "SERVICE - sale updated successfully..."
-        );
-
-
-        return mapToResponse(
-                sale
-        );
+        saleRepo.delete(sale);
+        log.info("SERVICE - sale {} deleted successfully", sale.getSaleNumber());
     }
 
 

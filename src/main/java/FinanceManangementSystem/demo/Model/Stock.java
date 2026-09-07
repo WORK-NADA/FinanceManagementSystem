@@ -181,4 +181,12 @@ public class Stock {
             nullable = false
     )
     private LocalDateTime updatedAt;
+
+    // =========================================================
+    // OPTIMISTIC LOCKING VERSION
+    // =========================================================
+
+    @Version
+    @Column(name = "version")
+    private Long version;
 }

@@ -19,6 +19,16 @@ import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import FinanceManangementSystem.demo.Model.Sale;
+import FinanceManangementSystem.demo.Model.SalePayment;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePartyStatementDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePartyStatementDTO.LedgerEntryDTO;
+import FinanceManangementSystem.demo.Repository.SaleRepository;
+import FinanceManangementSystem.demo.Repository.SalePaymentRepository;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,6 +43,10 @@ public class CustomerService
     private final CurrentUserService currentUserService;
 
     private final ModelMapper modelMapper;
+
+    private final SaleRepository saleRepo;
+
+    private final SalePaymentRepository salePaymentRepo;
 
 
     // =========================================================
@@ -712,7 +726,7 @@ public class CustomerService
             RequestCustomerDTO.CustomerAddressDTO dto
     ) {
 
-        if (dto == null) {
+        if (dto == null || dto.getAddressLine1() == null || dto.getAddressLine1().isBlank()) {
             return;
         }
 
@@ -739,24 +753,30 @@ public class CustomerService
 
 
         address.setCity(
-                dto.getCity().trim()
+                dto.getCity() != null && !dto.getCity().isBlank()
+                        ? dto.getCity().trim()
+                        : "Unknown"
         );
 
 
         address.setState(
-                dto.getState().trim()
+                dto.getState() != null && !dto.getState().isBlank()
+                        ? dto.getState().trim()
+                        : "Unknown"
         );
 
 
         address.setCountry(
-                dto.getCountry() != null
+                dto.getCountry() != null && !dto.getCountry().isBlank()
                         ? dto.getCountry().trim()
                         : "India"
         );
 
 
         address.setPincode(
-                dto.getPincode().trim()
+                dto.getPincode() != null && !dto.getPincode().isBlank()
+                        ? dto.getPincode().trim()
+                        : "000000"
         );
 
 
@@ -775,7 +795,7 @@ public class CustomerService
             RequestCustomerDTO.CustomerAddressDTO dto
     ) {
 
-        if (dto == null) {
+        if (dto == null || dto.getAddressLine1() == null || dto.getAddressLine1().isBlank()) {
             return;
         }
 
@@ -822,24 +842,30 @@ public class CustomerService
 
 
         address.setCity(
-                dto.getCity().trim()
+                dto.getCity() != null && !dto.getCity().isBlank()
+                        ? dto.getCity().trim()
+                        : "Unknown"
         );
 
 
         address.setState(
-                dto.getState().trim()
+                dto.getState() != null && !dto.getState().isBlank()
+                        ? dto.getState().trim()
+                        : "Unknown"
         );
 
 
         address.setCountry(
-                dto.getCountry() != null
+                dto.getCountry() != null && !dto.getCountry().isBlank()
                         ? dto.getCountry().trim()
                         : "India"
         );
 
 
         address.setPincode(
-                dto.getPincode().trim()
+                dto.getPincode() != null && !dto.getPincode().isBlank()
+                        ? dto.getPincode().trim()
+                        : "000000"
         );
     }
 
@@ -989,5 +1015,150 @@ public class CustomerService
 
 
         return normalized.toUpperCase();
+    }
+
+
+    // =========================================================
+    // GET CUSTOMER STATEMENT (LEDGER)
+    // =========================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResponsePartyStatementDTO getCustomerStatement(
+            UUID publicId,
+            LocalDate fromDate,
+            LocalDate toDate
+    ) {
+        log.info("SERVICE - generating statement for customer publicId={}, fromDate={}, toDate={}", publicId, fromDate, toDate);
+
+        User currentUser = currentUserService.getCurrentUser();
+        Customer customer;
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            customer = customerRepo.findByPublicId(publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        } else {
+            customer = customerRepo.findByUserAndPublicId(currentUser, publicId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
+        }
+
+        // Fetch all sales for this customer
+        List<Sale> allSales = saleRepo.findByCustomer(customer);
+
+        // Fetch all payments for this customer
+        List<SalePayment> allPayments;
+        if (currentUser.getRole() == UserRole.ADMIN) {
+            allPayments = salePaymentRepo.findBySale_Customer_PublicIdOrderByPaymentDateDesc(customer.getPublicId());
+        } else {
+            allPayments = salePaymentRepo.findByUserAndSale_Customer_PublicIdOrderByPaymentDateDesc(currentUser, customer.getPublicId());
+        }
+
+        // Initial base opening balance
+        BigDecimal initialOpening = customer.getOpeningBalance() != null ? customer.getOpeningBalance() : BigDecimal.ZERO;
+
+        // Calculate opening balance at fromDate (transactions prior to fromDate)
+        BigDecimal periodOpeningBalance = initialOpening;
+        if (fromDate != null) {
+            for (Sale s : allSales) {
+                if (s.getSaleDate().isBefore(fromDate)) {
+                    periodOpeningBalance = periodOpeningBalance.add(s.getTotalAmount() != null ? s.getTotalAmount() : BigDecimal.ZERO);
+                }
+            }
+            for (SalePayment p : allPayments) {
+                if (p.getPaymentDate().isBefore(fromDate)) {
+                    periodOpeningBalance = periodOpeningBalance.subtract(p.getAmountReceived() != null ? p.getAmountReceived() : BigDecimal.ZERO);
+                }
+            }
+        }
+
+        // Filter transactions within period [fromDate, toDate]
+        List<LedgerEntryDTO> periodEntries = new ArrayList<>();
+        BigDecimal totalBilled = BigDecimal.ZERO;
+        BigDecimal totalPaid = BigDecimal.ZERO;
+
+        for (Sale s : allSales) {
+            if ((fromDate == null || !s.getSaleDate().isBefore(fromDate)) &&
+                (toDate == null || !s.getSaleDate().isAfter(toDate))) {
+                BigDecimal debit = s.getTotalAmount() != null ? s.getTotalAmount() : BigDecimal.ZERO;
+                totalBilled = totalBilled.add(debit);
+                String desc = s.getRawMaterial() + " (" + s.getWeight() + " " + s.getUnit() + " @ ₹" + s.getRatePerUnit() + ")";
+                periodEntries.add(LedgerEntryDTO.builder()
+                        .date(s.getSaleDate())
+                        .entryType("INVOICE")
+                        .documentNumber(s.getSaleNumber())
+                        .referenceNumber(s.getCustomerInvoiceNumber())
+                        .description(desc)
+                        .debit(debit)
+                        .credit(BigDecimal.ZERO)
+                        .paymentMode(null)
+                        .remarks("Sale Invoice")
+                        .build());
+            }
+        }
+
+        for (SalePayment p : allPayments) {
+            if ((fromDate == null || !p.getPaymentDate().isBefore(fromDate)) &&
+                (toDate == null || !p.getPaymentDate().isAfter(toDate))) {
+                BigDecimal credit = p.getAmountReceived() != null ? p.getAmountReceived() : BigDecimal.ZERO;
+                totalPaid = totalPaid.add(credit);
+                String desc = "Payment Received" + (p.getSale() != null && p.getSale().getSaleNumber() != null ? " (" + p.getSale().getSaleNumber() + ")" : "");
+                periodEntries.add(LedgerEntryDTO.builder()
+                        .date(p.getPaymentDate())
+                        .entryType("PAYMENT")
+                        .documentNumber(p.getPaymentNumber())
+                        .referenceNumber(p.getReferenceNumber())
+                        .description(desc)
+                        .debit(BigDecimal.ZERO)
+                        .credit(credit)
+                        .paymentMode(p.getPaymentMode() != null ? p.getPaymentMode().name() : null)
+                        .remarks(p.getRemarks())
+                        .build());
+            }
+        }
+
+        // Sort chronologically ascending: date asc, INVOICE before PAYMENT
+        periodEntries.sort((a, b) -> {
+            int dateComp = a.getDate().compareTo(b.getDate());
+            if (dateComp != 0) return dateComp;
+            if ("INVOICE".equals(a.getEntryType()) && !"INVOICE".equals(b.getEntryType())) return -1;
+            if (!"INVOICE".equals(a.getEntryType()) && "INVOICE".equals(b.getEntryType())) return 1;
+            return 0;
+        });
+
+        // Compute running balance
+        BigDecimal runningBalance = periodOpeningBalance;
+        for (LedgerEntryDTO entry : periodEntries) {
+            runningBalance = runningBalance.add(entry.getDebit()).subtract(entry.getCredit());
+            entry.setRunningBalance(runningBalance);
+        }
+
+        // Format address string
+        String addressStr = null;
+        String cityStr = null;
+        if (customer.getAddress() != null) {
+            CustomerAddress addr = customer.getAddress();
+            cityStr = addr.getCity();
+            StringBuilder sb = new StringBuilder();
+            if (addr.getAddressLine1() != null) sb.append(addr.getAddressLine1());
+            if (addr.getAddressLine2() != null && !addr.getAddressLine2().isBlank()) sb.append(", ").append(addr.getAddressLine2());
+            if (addr.getCity() != null) sb.append(", ").append(addr.getCity());
+            if (addr.getState() != null) sb.append(", ").append(addr.getState());
+            if (addr.getPincode() != null) sb.append(" - ").append(addr.getPincode());
+            addressStr = sb.toString();
+        }
+
+        return ResponsePartyStatementDTO.builder()
+                .partyPublicId(customer.getPublicId())
+                .partyName(customer.getCustomerName())
+                .mobileNumber(customer.getMobileNumber())
+                .email(customer.getEmail())
+                .gstNumber(customer.getGstNumber())
+                .city(cityStr)
+                .address(addressStr)
+                .openingBalance(periodOpeningBalance)
+                .totalBilled(totalBilled)
+                .totalPaid(totalPaid)
+                .outstandingBalance(runningBalance)
+                .entries(periodEntries)
+                .build();
     }
 }

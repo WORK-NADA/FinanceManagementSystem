@@ -16,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.jpa.domain.Specification;
+import FinanceManangementSystem.demo.Specification.ExpenseSpecification;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -90,8 +92,24 @@ public class ExpenseService
                 expenseNumber
         );
 
+        if (dto.getCategory() == ExpenseCategory.OTHER) {
+            if (dto.getDescription() == null || dto.getDescription().trim().isEmpty()) {
+                throw new InvalidRequestException(
+                        "Description is required when category is Other"
+                );
+            }
+        }
+
         expense.setDescription(
-                dto.getDescription().trim()
+                dto.getDescription() != null && !dto.getDescription().trim().isEmpty()
+                        ? dto.getDescription().trim()
+                        : null
+        );
+
+        expense.setReferenceNumber(
+                dto.getReferenceNumber() != null && !dto.getReferenceNumber().isBlank()
+                        ? dto.getReferenceNumber().trim()
+                        : null
         );
 
         expense.setRemarks(
@@ -163,16 +181,29 @@ public class ExpenseService
     @Override
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<ResponseExpenseDTO> getAllExpenses(org.springframework.data.domain.Pageable pageable) {
+        return getAllExpenses(null, null, null, pageable);
+    }
 
-        log.info(
-                "SERVICE - request came in getAllExpenses..."
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<ResponseExpenseDTO> getAllExpenses(
+            ExpenseCategory category,
+            LocalDate fromDate,
+            LocalDate toDate,
+            org.springframework.data.domain.Pageable pageable
+    ) {
+        log.info("SERVICE - request came in getAllExpenses with filters...");
+        User currentUser = currentUserService.getCurrentUser();
+        User filterUser = (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) ? null : currentUser;
+
+        Specification<Expense> spec = ExpenseSpecification.filter(
+                filterUser,
+                category,
+                fromDate,
+                toDate
         );
 
-        User currentUser = currentUserService.getCurrentUser();
-
-        return expenseRepo
-                .findByUserAndIsActiveTrueOrderByExpenseDateDesc(currentUser, pageable)
-                .map(this::mapToResponse);
+        return expenseRepo.findAll(spec, pageable).map(this::mapToResponse);
     }
 
 
@@ -226,8 +257,24 @@ public class ExpenseService
                 dto.getPaymentMode()
         );
 
+        if (dto.getCategory() == ExpenseCategory.OTHER) {
+            if (dto.getDescription() == null || dto.getDescription().trim().isEmpty()) {
+                throw new InvalidRequestException(
+                        "Description is required when category is Other"
+                );
+            }
+        }
+
         expense.setDescription(
-                dto.getDescription().trim()
+                dto.getDescription() != null && !dto.getDescription().trim().isEmpty()
+                        ? dto.getDescription().trim()
+                        : null
+        );
+
+        expense.setReferenceNumber(
+                dto.getReferenceNumber() != null && !dto.getReferenceNumber().isBlank()
+                        ? dto.getReferenceNumber().trim()
+                        : null
         );
 
         expense.setRemarks(
@@ -374,13 +421,21 @@ public class ExpenseService
                 "SERVICE - request came in getTotalExpenses..."
         );
 
-        if (fromDate == null) fromDate = LocalDate.now().withDayOfMonth(1);
-        if (toDate == null) toDate = LocalDate.now();
-
-        return expenseRepo.sumTotalExpensesByDateRange(
-                fromDate,
-                toDate
-        );
+        User currentUser = currentUserService.getCurrentUser();
+        BigDecimal result;
+        if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
+            result = expenseRepo.sumTotalExpensesByDateRange(
+                    fromDate,
+                    toDate
+            );
+        } else {
+            result = expenseRepo.sumTotalExpensesByUserAndDateRange(
+                    currentUser,
+                    fromDate,
+                    toDate
+            );
+        }
+        return result == null ? BigDecimal.ZERO : result;
     }
 
 
@@ -424,9 +479,6 @@ public class ExpenseService
                 "SERVICE - request came in getCategoryWiseBreakdown..."
         );
 
-        if (fromDate == null) fromDate = LocalDate.now().withDayOfMonth(1);
-        if (toDate == null) toDate = LocalDate.now();
-
         Map<ExpenseCategory, BigDecimal> breakdown =
                 new EnumMap<>(ExpenseCategory.class);
 
@@ -434,11 +486,20 @@ public class ExpenseService
             breakdown.put(cat, BigDecimal.ZERO);
         }
 
-        List<Object[]> results =
-                expenseRepo.findCategoryWiseBreakdownByDateRange(
-                        fromDate,
-                        toDate
-                );
+        User currentUser = currentUserService.getCurrentUser();
+        List<Object[]> results;
+        if (currentUser.getRole() == FinanceManangementSystem.demo.Enums.UserRole.ADMIN) {
+            results = expenseRepo.findCategoryWiseBreakdownByDateRange(
+                    fromDate,
+                    toDate
+            );
+        } else {
+            results = expenseRepo.findCategoryWiseBreakdownByUserAndDateRange(
+                    currentUser,
+                    fromDate,
+                    toDate
+            );
+        }
 
         for (Object[] row : results) {
 

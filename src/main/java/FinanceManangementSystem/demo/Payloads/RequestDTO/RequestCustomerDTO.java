@@ -54,7 +54,6 @@ public class RequestCustomerDTO {
     // EMAIL
     // =========================================================
 
-    @NotBlank(message = "Email is required")
     @Email(message = "Invalid email format")
     @Size(
             max = 150,
@@ -67,9 +66,8 @@ public class RequestCustomerDTO {
     // GST
     // =========================================================
 
-    @NotBlank(message = "GST number is required")
     @Pattern(
-            regexp = "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
+            regexp = "^$|^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$|^[0-9A-Za-z]{15}$",
             message = "Invalid GST number"
     )
     private String gstNumber;
@@ -79,7 +77,6 @@ public class RequestCustomerDTO {
     // OPENING BALANCE
     // =========================================================
 
-    @NotNull(message = "Opening balance is required")
     @DecimalMin(
             value = "0.00",
             message = "Opening balance cannot be negative"
@@ -89,14 +86,13 @@ public class RequestCustomerDTO {
             fraction = 2,
             message = "Opening balance must have maximum 13 integer digits and 2 decimal places"
     )
-    private BigDecimal openingBalance;
+    private BigDecimal openingBalance = BigDecimal.ZERO;
 
 
     // =========================================================
     // PAYMENT TERMS
     // =========================================================
 
-    @NotNull(message = "Payment terms are required")
     @Min(
             value = 0,
             message = "Payment terms cannot be negative"
@@ -105,14 +101,13 @@ public class RequestCustomerDTO {
             value = 365,
             message = "Payment terms cannot exceed 365 days"
     )
-    private Integer paymentTerms;
+    private Integer paymentTerms = 30;
 
 
     // =========================================================
     // ADDRESS
     // =========================================================
 
-    @NotNull(message = "Address is required")
     @Valid
     private CustomerAddressDTO address;
 
@@ -127,10 +122,12 @@ public class RequestCustomerDTO {
     @AllArgsConstructor
     public static class CustomerAddressDTO {
 
-        @NotBlank(message = "Address line 1 is required")
         @Size(
-                min = 3,
                 max = 150,
+                message = "Address line 1 must be between 3 and 150 characters"
+        )
+        @Pattern(
+                regexp = "^$|^.{3,150}$",
                 message = "Address line 1 must be between 3 and 150 characters"
         )
         private String addressLine1;
@@ -143,36 +140,37 @@ public class RequestCustomerDTO {
         private String addressLine2;
 
 
-        @NotBlank(message = "City is required")
         @Size(
-                min = 2,
                 max = 100,
+                message = "City must be between 2 and 100 characters"
+        )
+        @Pattern(
+                regexp = "^$|^.{2,100}$",
                 message = "City must be between 2 and 100 characters"
         )
         private String city;
 
 
-        @NotBlank(message = "State is required")
         @Size(
-                min = 2,
                 max = 100,
+                message = "State must be between 2 and 100 characters"
+        )
+        @Pattern(
+                regexp = "^$|^.{2,100}$",
                 message = "State must be between 2 and 100 characters"
         )
         private String state;
 
 
-        @NotBlank(message = "Country is required")
         @Size(
-                min = 2,
                 max = 100,
                 message = "Country must be between 2 and 100 characters"
         )
         private String country = "India";
 
 
-        @NotBlank(message = "Pincode is required")
         @Pattern(
-                regexp = "^[0-9]{6}$",
+                regexp = "^$|^[0-9]{6}$",
                 message = "Pincode must contain exactly 6 digits"
         )
         private String pincode;

@@ -20,6 +20,8 @@ public class ResponsePurchasePaymentDTO {
 
     private UUID publicId;
 
+    private String paymentNumber;
+
     private String referenceNumber;
 
     private BigDecimal amountPaid;
@@ -43,6 +45,10 @@ public class ResponsePurchasePaymentDTO {
         private UUID publicId;
 
         private String purchaseNumber;
+
+        private String supplierName;
+
+        private LocalDate purchaseDate;
 
         private BigDecimal totalAmount;
 

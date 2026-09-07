@@ -6,9 +6,11 @@ public enum StockTransactionType {
 
     SALE_OUT,
 
-    SALE_RETURN_IN,
-
     ADJUSTMENT_IN,
 
-    ADJUSTMENT_OUT
+    ADJUSTMENT_OUT,
+
+    CANCEL_PURCHASE_OUT,
+
+    CANCEL_SALE_IN
 }

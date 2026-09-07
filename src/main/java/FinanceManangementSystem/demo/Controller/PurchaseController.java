@@ -19,6 +19,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 import org.springframework.data.domain.Pageable;
+import FinanceManangementSystem.demo.Enums.PaymentStatus;
 import java.util.UUID;
 
 @Slf4j
@@ -117,34 +118,25 @@ public class PurchaseController {
     public ResponseEntity<
             APIResponse<Page<ResponsePurchaseDTO>>
             >
-    getAllPurchases(@RequestParam(defaultValue = "0") int page,
-                    @RequestParam(defaultValue = "20") int size) {
+    getAllPurchases(
+            @RequestParam(required = false) UUID supplierPublicId,
+            @RequestParam(required = false) PaymentStatus status,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
-        log.info(
-                "CONTROLLER - request came in getAllPurchases..."
-        );
-
-
-        log.info(
-                "CONTROLLER - calling purchase service..."
-        );
-
+        log.info("CONTROLLER - request came in getAllPurchases with filters...");
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "purchaseDate"));
 
-        Page<ResponsePurchaseDTO> response = purchaseService.getAllPurchases(pageable);
-
-
-        log.info(
-                "CONTROLLER - purchases fetched successfully..."
-        );
-
+        Page<ResponsePurchaseDTO> response = purchaseService.getAllPurchases(supplierPublicId, status, fromDate, toDate, pageable);
 
         return ResponseEntity
                 .status(HttpStatus.OK)
                 .body(
                         new APIResponse<>(
-                                        "Purchases fetched successfully...",
-                                        response
+                                "Purchases fetched successfully...",
+                                response
                         )
                 );
     }
@@ -327,6 +319,37 @@ public class PurchaseController {
                         new APIResponse<>(
                                 "Purchase updated successfully...",
                                 response
+                        )
+                );
+    }
+
+
+    // =========================================================
+    // DELETE PURCHASE
+    // =========================================================
+
+    @DeleteMapping("/{publicId}")
+    public ResponseEntity<APIResponse<Void>> deletePurchase(
+            @PathVariable UUID publicId
+    ) {
+
+        log.info(
+                "CONTROLLER - request came in deletePurchase: {}",
+                publicId
+        );
+
+        purchaseService.deletePurchase(publicId);
+
+        log.info(
+                "CONTROLLER - purchase deleted successfully..."
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Purchase deleted successfully...",
+                                null
                         )
                 );
     }

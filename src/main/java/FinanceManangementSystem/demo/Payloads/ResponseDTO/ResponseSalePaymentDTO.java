@@ -20,6 +20,8 @@ public class ResponseSalePaymentDTO {
 
     private UUID publicId;
 
+    private String paymentNumber;
+
     private String referenceNumber;
 
     private BigDecimal amountReceived;
@@ -43,6 +45,10 @@ public class ResponseSalePaymentDTO {
         private UUID publicId;
 
         private String saleNumber;
+
+        private String customerName;
+
+        private LocalDate saleDate;
 
         private BigDecimal totalAmount;
 

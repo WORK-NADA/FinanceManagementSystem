@@ -12,11 +12,12 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.UUID;
 
 @Repository
 public interface StockTransactionRepository
-        extends JpaRepository<StockTransaction, Long> {
+        extends JpaRepository<StockTransaction, Long>, JpaSpecificationExecutor<StockTransaction> {
 
     // =========================================================
     // FIND BY PUBLIC ID
@@ -170,6 +171,18 @@ public interface StockTransactionRepository
      */
 
     boolean existsByUserAndReferenceNumberAndTransactionType(
+            User user,
+            String referenceNumber,
+            StockTransactionType transactionType
+    );
+
+    Optional<StockTransaction> findByUserAndReferenceNumberAndTransactionType(
+            User user,
+            String referenceNumber,
+            StockTransactionType transactionType
+    );
+
+    void deleteByUserAndReferenceNumberAndTransactionType(
             User user,
             String referenceNumber,
             StockTransactionType transactionType

@@ -32,6 +32,8 @@ public class ResponseExpenseDTO {
 
     private String description;
 
+    private String referenceNumber;
+
     private String remarks;
 
     private Boolean isActive;

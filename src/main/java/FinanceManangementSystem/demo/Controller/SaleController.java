@@ -15,6 +15,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Pageable;
+import FinanceManangementSystem.demo.Enums.PaymentStatus;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -113,28 +116,19 @@ public class SaleController {
     // =========================================================
 
     @GetMapping("all")
-        public ResponseEntity<APIResponse<Page<ResponseSaleDTO>>>
-        getAllSales(@RequestParam(defaultValue = "0") int page,
-                                 @RequestParam(defaultValue = "20") int size) {
+    public ResponseEntity<APIResponse<Page<ResponseSaleDTO>>>
+    getAllSales(
+            @RequestParam(required = false) UUID customerPublicId,
+            @RequestParam(required = false) PaymentStatus status,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
 
-        log.info(
-                "CONTROLLER - request came in getAllSales..."
-        );
-
-
-        log.info(
-                "CONTROLLER - calling sale service..."
-        );
-
+        log.info("CONTROLLER - request came in getAllSales with filters...");
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "saleDate"));
 
-        Page<ResponseSaleDTO> response = saleService.getAllSales(pageable);
-
-
-        log.info(
-                "CONTROLLER - all sales fetched successfully..."
-        );
-
+        Page<ResponseSaleDTO> response = saleService.getAllSales(customerPublicId, status, fromDate, toDate, pageable);
 
         return ResponseEntity
                 .status(HttpStatus.OK)
@@ -185,6 +179,72 @@ public class SaleController {
                         new APIResponse<>(
                                 "Sale updated successfully...",
                                 response
+                        )
+                );
+    }
+
+
+    // =========================================================
+    // GET SALES BY CUSTOMER
+    // =========================================================
+
+    @GetMapping("customer/{customerPublicId}")
+    public ResponseEntity<
+            APIResponse<List<ResponseSaleDTO>>
+            >
+    getSalesByCustomer(
+            @PathVariable UUID customerPublicId
+    ) {
+
+        log.info(
+                "CONTROLLER - request came in getSalesByCustomer..."
+        );
+
+
+        log.info(
+                "CONTROLLER - calling sale service..."
+        );
+
+        List<ResponseSaleDTO> response =
+                saleService.getSalesByCustomer(
+                        customerPublicId
+                );
+
+
+        log.info(
+                "CONTROLLER - customer sales fetched successfully..."
+        );
+
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Customer sales fetched successfully...",
+                                response
+                        )
+                );
+    }
+
+
+    // =========================================================
+    // DELETE SALE
+    // =========================================================
+
+    @DeleteMapping("/{publicId}")
+    public ResponseEntity<APIResponse<Void>> deleteSale(
+            @PathVariable UUID publicId
+    ) {
+        log.info("CONTROLLER - request came in deleteSale: {}", publicId);
+        saleService.deleteSale(publicId);
+        log.info("CONTROLLER - sale deleted successfully: {}", publicId);
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Sale deleted successfully...",
+                                null
                         )
                 );
     }

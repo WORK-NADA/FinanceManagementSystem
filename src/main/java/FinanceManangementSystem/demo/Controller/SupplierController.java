@@ -11,6 +11,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePartyStatementDTO;
+import org.springframework.format.annotation.DateTimeFormat;
+
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -137,6 +141,41 @@ public class SupplierController {
 
 
     // ==================================================
+    // GET ALL ACTIVE SUPPLIERS
+    // ==================================================
+
+    @GetMapping("active")
+    public ResponseEntity<APIResponse<List<ResponseSupplierDTO>>>
+    getAllActiveSuppliers() {
+
+        log.info(
+                "CONTROLLER - request came in getAllActiveSuppliers..."
+        );
+
+
+        log.info(
+                "CONTROLLER - calling supplier service..."
+        );
+
+        List<ResponseSupplierDTO> response =
+                supplierService.getAllActiveSuppliers();
+
+
+        log.info(
+                "CONTROLLER - active suppliers fetched successfully..."
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Active suppliers fetched successfully...",
+                                response
+                        )
+                );
+    }
+
+    // ==================================================
     // UPDATE SUPPLIER
     // ==================================================
 
@@ -247,6 +286,36 @@ public class SupplierController {
                         new APIResponse<>(
                                 "Supplier activated successfully...",
                                 null
+                        )
+                );
+    }
+
+
+    // ==================================================
+    // GET SUPPLIER STATEMENT (LEDGER)
+    // ==================================================
+
+    @GetMapping("/{publicId}/statement")
+    public ResponseEntity<APIResponse<ResponsePartyStatementDTO>> getSupplierStatement(
+            @PathVariable UUID publicId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+
+        log.info(
+                "CONTROLLER - request came in getSupplierStatement for publicId={}, fromDate={}, toDate={}",
+                publicId, fromDate, toDate
+        );
+
+        ResponsePartyStatementDTO response =
+                supplierService.getSupplierStatement(publicId, fromDate, toDate);
+
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(
+                        new APIResponse<>(
+                                "Supplier statement fetched successfully...",
+                                response
                         )
                 );
     }

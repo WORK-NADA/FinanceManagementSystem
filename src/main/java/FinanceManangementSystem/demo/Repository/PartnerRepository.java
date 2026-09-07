@@ -38,7 +38,18 @@ public interface PartnerRepository
             String mobileNumber
     );
 
+    boolean existsByUserAndMobileNumber(
+            User user,
+            String mobileNumber
+    );
+
     boolean existsByMobileNumberAndPublicIdNot(
+            String mobileNumber,
+            UUID publicId
+    );
+
+    boolean existsByUserAndMobileNumberAndPublicIdNot(
+            User user,
             String mobileNumber,
             UUID publicId
     );
@@ -51,6 +62,12 @@ public interface PartnerRepository
 
     @Query("SELECT COALESCE(SUM(p.sharePercentage), 0) FROM Partner p WHERE p.isActive = true AND p.publicId <> :publicId")
     BigDecimal sumActiveSharePercentageExcluding(
+            @Param("publicId") UUID publicId
+    );
+
+    @Query("SELECT COALESCE(SUM(p.sharePercentage), 0) FROM Partner p WHERE p.user = :user AND p.isActive = true AND p.publicId <> :publicId")
+    BigDecimal sumActiveSharePercentageExcluding(
+            @Param("user") User user,
             @Param("publicId") UUID publicId
     );
 }

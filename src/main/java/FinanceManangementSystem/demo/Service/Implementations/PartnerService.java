@@ -43,8 +43,8 @@ public class PartnerService implements PartnerServiceInterface {
 
         User currentUser = currentUserService.getCurrentUser();
 
-        if (partnerRepo.existsByMobileNumber(dto.getMobileNumber())) {
-            log.info("SERVICE - partner mobile number already exists...");
+        if (partnerRepo.existsByUserAndMobileNumber(currentUser, dto.getMobileNumber())) {
+            log.info("SERVICE - partner mobile number already exists for user...");
             throw new InvalidRequestException("Partner with this mobile number already exists");
         }
 
@@ -52,9 +52,15 @@ public class PartnerService implements PartnerServiceInterface {
 
         if (currentSum == null) currentSum = BigDecimal.ZERO;
 
-        if (currentSum.add(dto.getSharePercentage()).compareTo(new BigDecimal("100.00")) > 0) {
-            log.info("SERVICE - total partner share would exceed 100%...");
-            throw new InvalidRequestException("Total partner share cannot exceed 100%");
+        if (currentSum.compareTo(new BigDecimal("100.00")) >= 0) {
+            log.info("SERVICE - partner share is already 100%...");
+            throw new InvalidRequestException("Partner share is already 100%. No additional share is available.");
+        }
+
+        BigDecimal remaining = new BigDecimal("100.00").subtract(currentSum);
+        if (dto.getSharePercentage().compareTo(remaining) > 0) {
+            log.info("SERVICE - total partner share would exceed 100% (available: {}%)...", remaining);
+            throw new InvalidRequestException("Total partner share cannot exceed 100%. Available share is " + remaining + "%.");
         }
 
         Partner partner = modelMapper.map(dto, Partner.class);
@@ -117,17 +123,23 @@ public class PartnerService implements PartnerServiceInterface {
                 .orElseThrow(() -> new ResourceNotFoundException("Partner not found"));
 
         if (!partner.getMobileNumber().equals(dto.getMobileNumber())
-                && partnerRepo.existsByMobileNumberAndPublicIdNot(dto.getMobileNumber(), publicId)) {
-            log.info("SERVICE - partner mobile number already exists...");
+                && partnerRepo.existsByUserAndMobileNumberAndPublicIdNot(currentUser, dto.getMobileNumber(), publicId)) {
+            log.info("SERVICE - partner mobile number already exists for user...");
             throw new InvalidRequestException("Partner with this mobile number already exists");
         }
 
-        BigDecimal otherSum = partnerRepo.sumActiveSharePercentageExcluding(publicId);
+        BigDecimal otherSum;
+        if (Boolean.TRUE.equals(partner.getIsActive())) {
+            otherSum = partnerRepo.sumActiveSharePercentageExcluding(currentUser, publicId);
+        } else {
+            otherSum = partnerRepo.sumActiveSharePercentage(currentUser);
+        }
         if (otherSum == null) otherSum = BigDecimal.ZERO;
 
-        if (otherSum.add(dto.getSharePercentage()).compareTo(new BigDecimal("100.00")) > 0) {
-            log.info("SERVICE - total partner share would exceed 100% on update...");
-            throw new InvalidRequestException("Total partner share cannot exceed 100%");
+        BigDecimal maxAllowed = new BigDecimal("100.00").subtract(otherSum);
+        if (dto.getSharePercentage().compareTo(maxAllowed) > 0) {
+            log.info("SERVICE - total partner share would exceed 100% on update (max allowed: {}%)...", maxAllowed);
+            throw new InvalidRequestException("Total active partner share cannot exceed 100%. Maximum available share is " + maxAllowed + "%.");
         }
 
         partner.setPartnerName(dto.getPartnerName());
@@ -168,6 +180,19 @@ public class PartnerService implements PartnerServiceInterface {
 
         Partner partner = partnerRepo.findByUserAndPublicId(currentUser, publicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Partner not found"));
+
+        if (Boolean.TRUE.equals(partner.getIsActive())) {
+            return;
+        }
+
+        BigDecimal currentSum = partnerRepo.sumActiveSharePercentage(currentUser);
+        if (currentSum == null) currentSum = BigDecimal.ZERO;
+
+        if (currentSum.add(partner.getSharePercentage()).compareTo(new BigDecimal("100.00")) > 0) {
+            BigDecimal available = new BigDecimal("100.00").subtract(currentSum);
+            log.info("SERVICE - reactivating partner would exceed 100% active share (available: {}%)...", available);
+            throw new InvalidRequestException("Cannot reactivate partner. Total active partner share would exceed 100% (Available share: " + available + "%).");
+        }
 
         partner.setIsActive(true);
         partnerRepo.save(partner);

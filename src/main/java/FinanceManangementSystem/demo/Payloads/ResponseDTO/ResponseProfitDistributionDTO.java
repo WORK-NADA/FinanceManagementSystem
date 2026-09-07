@@ -33,7 +33,19 @@ public class ResponseProfitDistributionDTO {
 
     private LocalDateTime createdAt;
 
+    private LocalDateTime updatedAt;
+
+    private boolean isRecalculation;
+
     private List<PartnerShareDetails> shares;
+
+    public boolean getIsRecalculation() {
+        return isRecalculation;
+    }
+
+    public void setIsRecalculation(boolean isRecalculation) {
+        this.isRecalculation = isRecalculation;
+    }
 
     @Getter
     @Setter

@@ -110,4 +110,7 @@ public class ProfitDistribution {
             updatable = false
     )
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 }

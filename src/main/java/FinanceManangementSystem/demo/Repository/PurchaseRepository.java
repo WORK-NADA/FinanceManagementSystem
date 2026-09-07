@@ -12,12 +12,13 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface PurchaseRepository
-        extends JpaRepository<Purchase, Long> {
+        extends JpaRepository<Purchase, Long>, JpaSpecificationExecutor<Purchase> {
 
     // =========================================================
     // FIND BY PUBLIC ID
@@ -121,5 +122,18 @@ public interface PurchaseRepository
     boolean existsBySupplierInvoiceNumberAndSupplier(
             String supplierInvoiceNumber,
             Supplier supplier
+    );
+
+    // =========================================================
+    // FIND BY RAW MATERIAL (FOR SYNCHRONIZATION)
+    // =========================================================
+
+    List<Purchase> findByUserAndRawMaterialIgnoreCase(
+            User user,
+            String rawMaterial
+    );
+
+    List<Purchase> findByRawMaterialIgnoreCase(
+            String rawMaterial
     );
 }

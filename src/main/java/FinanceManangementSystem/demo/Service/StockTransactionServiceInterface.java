@@ -6,9 +6,12 @@ import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestStockTransaction
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseStockTransactionDTO;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface StockTransactionServiceInterface {
 
@@ -34,7 +37,18 @@ public interface StockTransactionServiceInterface {
     // GET ALL TRANSACTIONS
     // =========================================================
 
-        org.springframework.data.domain.Page<ResponseStockTransactionDTO> getAllTransactions(org.springframework.data.domain.Pageable pageable);
+    default Page<ResponseStockTransactionDTO> getAllTransactions(Pageable pageable) {
+        return getAllTransactions(null, null, null, null, null, pageable);
+    }
+
+    Page<ResponseStockTransactionDTO> getAllTransactions(
+            UUID stockPublicId,
+            StockTransactionType type,
+            String referenceNumber,
+            LocalDate fromDate,
+            LocalDate toDate,
+            Pageable pageable
+    );
 
 
     // =========================================================
@@ -96,6 +110,27 @@ public interface StockTransactionServiceInterface {
             String purchaseNumber
     );
 
+    // Purchase updated
+    void updatePurchaseStock(
+            FinanceManangementSystem.demo.Model.User user,
+            String oldRawMaterial,
+            WeightUnit oldUnit,
+            BigDecimal oldWeight,
+            String newRawMaterial,
+            WeightUnit newUnit,
+            BigDecimal newWeight,
+            String purchaseNumber
+    );
+
+    // Purchase reverted (deleted)
+    void revertPurchaseStock(
+            FinanceManangementSystem.demo.Model.User user,
+            String rawMaterial,
+            WeightUnit unit,
+            BigDecimal quantity,
+            String purchaseNumber
+    );
+
 
     // Sale completed
     void saleStockOut(
@@ -105,14 +140,34 @@ public interface StockTransactionServiceInterface {
             String saleNumber
     );
 
+    // Sale updated
+    void updateSaleStock(
+            FinanceManangementSystem.demo.Model.User user,
+            String rawMaterial,
+            WeightUnit unit,
+            BigDecimal oldWeight,
+            BigDecimal newWeight,
+            String saleNumber
+    );
 
+    void updateSaleStock(
+            FinanceManangementSystem.demo.Model.User user,
+            String oldRawMaterial,
+            WeightUnit oldUnit,
+            BigDecimal oldWeight,
+            String newRawMaterial,
+            WeightUnit newUnit,
+            BigDecimal newWeight,
+            String saleNumber
+    );
 
-    // Sale return completed
-    void saleReturnStockIn(
+    // Sale reverted (deleted)
+    void revertSaleStock(
+            FinanceManangementSystem.demo.Model.User user,
             String rawMaterial,
             WeightUnit unit,
             BigDecimal quantity,
-            String returnNumber
+            String saleNumber
     );
 
 

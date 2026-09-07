@@ -1,5 +1,6 @@
 package FinanceManangementSystem.demo.Service.Implementations;
 
+import FinanceManangementSystem.demo.Exceptions.InvalidRefreshTokenException;
 import FinanceManangementSystem.demo.Exceptions.RefreshTokenExpiredException;
 import FinanceManangementSystem.demo.Model.RefreshToken;
 import FinanceManangementSystem.demo.Model.User;
@@ -40,6 +41,11 @@ public class RefreshTokenService implements RefreshTokenInterface {
     @Override
     public RefreshToken verifyToken(RefreshToken token) {
         log.info("SERVICE - request came in verify refresh token...");
+
+        if (token.getUser() == null || Boolean.TRUE.equals(token.getUser().getDeleted()) || !Boolean.TRUE.equals(token.getUser().getEnabled())) {
+            refreshRepo.delete(token);
+            throw new InvalidRefreshTokenException("Invalid Refresh Token...");
+        }
 
         if(token.getExpiryDate()
                 .isBefore(LocalDateTime.now())){

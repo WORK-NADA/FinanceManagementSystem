@@ -2,7 +2,9 @@ package FinanceManangementSystem.demo.Service;
 
 import FinanceManangementSystem.demo.Payloads.RequestDTO.RequestCustomerDTO;
 import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseCustomerDTO;
+import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponsePartyStatementDTO;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -65,5 +67,16 @@ public interface CustomerServiceInterface {
 
     void reactivateCustomer(
             UUID publicId
+    );
+
+
+    // =========================================================
+    // GET CUSTOMER STATEMENT (LEDGER)
+    // =========================================================
+
+    ResponsePartyStatementDTO getCustomerStatement(
+            UUID publicId,
+            LocalDate fromDate,
+            LocalDate toDate
     );
 }
