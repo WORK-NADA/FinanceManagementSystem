@@ -1,0 +1,7 @@
+target/
+.git/
+.idea/
+logs/
+*.log
+secrets.properties
+src/main/resources/secrets.properties
