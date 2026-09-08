@@ -129,6 +129,7 @@ public class CommonService implements CommonServiceInterface {
         log.info("SERVICE - request came in getCurrentUser...");
         User user = currentUserService.getCurrentUser();
         ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
+        response.setViewablePassword(null); // Ensure viewable password is never exposed in profile payload
         if (user.getAddress() != null) {
             response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
         }
@@ -157,6 +158,9 @@ public class CommonService implements CommonServiceInterface {
                 throw new InvalidRequestException("Current password is incorrect.");
             }
             user.setPassword(passwordEncoder.encode(dto.getNewPassword().trim()));
+            if (user.getRole() == UserRole.CLIENT) {
+                user.setViewablePassword(dto.getNewPassword().trim());
+            }
             log.info("SERVICE - password updated for user: {}", user.getUsername());
         }
 
@@ -185,6 +189,7 @@ public class CommonService implements CommonServiceInterface {
         log.info("SERVICE - current user updated successfully...");
 
         ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
+        response.setViewablePassword(null); // Ensure viewable password is never exposed in profile payload
         if (user.getAddress() != null) {
             response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
         }

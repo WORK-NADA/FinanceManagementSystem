@@ -70,6 +70,9 @@ public class AdminService implements AdminServiceInterface {
 
         User user = modelMapper.map(dto,User.class);
         user.setPassword(passwordEncoder.encode(user.getPassword()));
+        if (dto.getRole() == null || dto.getRole() == UserRole.CLIENT) {
+            user.setViewablePassword(dto.getPassword());
+        }
 
         if (dto.getUserAddress() != null) {
             UserAddress address = modelMapper.map(dto.getUserAddress(), UserAddress.class);
@@ -86,6 +89,9 @@ public class AdminService implements AdminServiceInterface {
         ResponseUserDTO response = modelMapper.map(user,ResponseUserDTO.class);
         if (user.getAddress() != null) {
             response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
+        }
+        if (user.getRole() == UserRole.CLIENT) {
+            response.setViewablePassword(user.getViewablePassword());
         }
         return response;
     }
@@ -106,6 +112,9 @@ public class AdminService implements AdminServiceInterface {
                     if (user.getAddress() != null) {
                         dto.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
                     }
+                    if (user.getRole() == UserRole.CLIENT) {
+                        dto.setViewablePassword(user.getViewablePassword());
+                    }
                     return dto;
                 })
                 .collect(Collectors.toList());
@@ -120,6 +129,9 @@ public class AdminService implements AdminServiceInterface {
         ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
         if (user.getAddress() != null) {
             response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
+        }
+        if (user.getRole() == UserRole.CLIENT) {
+            response.setViewablePassword(user.getViewablePassword());
         }
         return response;
     }
@@ -141,6 +153,14 @@ public class AdminService implements AdminServiceInterface {
         user.setOwnerName(dto.getOwnerName());
         user.setEmail(dto.getEmail());
         user.setMobileNumber(dto.getMobileNumber());
+
+        if (dto.getNewPassword() != null && !dto.getNewPassword().trim().isEmpty()) {
+            user.setPassword(passwordEncoder.encode(dto.getNewPassword().trim()));
+            if (user.getRole() == UserRole.CLIENT) {
+                user.setViewablePassword(dto.getNewPassword().trim());
+            }
+            log.info("SERVICE - password reset for client: {} by Admin", user.getUsername());
+        }
 
         if (dto.getUserAddress() != null) {
             UserAddress address = user.getAddress();
@@ -166,6 +186,9 @@ public class AdminService implements AdminServiceInterface {
         ResponseUserDTO response = modelMapper.map(user, ResponseUserDTO.class);
         if (user.getAddress() != null) {
             response.setUserAddress(modelMapper.map(user.getAddress(), ResponseUserAddressDTO.class));
+        }
+        if (user.getRole() == UserRole.CLIENT) {
+            response.setViewablePassword(user.getViewablePassword());
         }
         return response;
     }
@@ -323,6 +346,9 @@ public class AdminService implements AdminServiceInterface {
         dto.setCreatedAt(client.getCreatedAt());
         if (client.getAddress() != null) {
             dto.setAddress(modelMapper.map(client.getAddress(), ResponseUserAddressDTO.class));
+        }
+        if (client.getRole() == UserRole.CLIENT) {
+            dto.setViewablePassword(client.getViewablePassword());
         }
 
         // 2. Financial Metrics Rollup
