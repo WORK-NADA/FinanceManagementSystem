@@ -40,6 +40,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Column(name = "viewable_password")
+    private String viewablePassword;
+
     @Column(nullable = false, unique = true, length = 10)
     private String mobileNumber;
 

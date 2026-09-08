@@ -30,6 +30,7 @@ public class Client360DTO {
     private LocalDateTime lockTime;
     private LocalDateTime createdAt;
     private ResponseUserAddressDTO address;
+    private String viewablePassword;
 
     // 2. Financial Metrics Rollup
     private BigDecimal openingBalance = BigDecimal.ZERO;
