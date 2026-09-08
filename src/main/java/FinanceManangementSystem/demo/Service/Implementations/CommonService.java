@@ -1,5 +1,6 @@
 package FinanceManangementSystem.demo.Service.Implementations;
 
+import FinanceManangementSystem.demo.Enums.UserRole;
 import FinanceManangementSystem.demo.Exceptions.DuplicateResourceException;
 import FinanceManangementSystem.demo.Exceptions.InvalidRequestException;
 import FinanceManangementSystem.demo.Exceptions.ResourceNotFoundException;
