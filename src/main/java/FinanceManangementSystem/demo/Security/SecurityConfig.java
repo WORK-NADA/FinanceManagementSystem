@@ -49,13 +49,27 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
+                // HTTP Security Headers
+                .headers(headers -> headers
+                        // Prevent the app from being embedded in iframes (Clickjacking)
+                        .frameOptions(frame -> frame.deny())
+                        // Prevent MIME type sniffing
+                        .contentTypeOptions(type -> {})
+                        // Enforce HTTPS for 1 year on all subdomains
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31536000)
+                        )
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/health", "/api/health").permitAll()
                         .requestMatchers("/user/login").permitAll()
                         .requestMatchers("/user/me").hasAnyAuthority("ADMIN","CLIENT")
                         .requestMatchers("/auth/refresh").permitAll()
+                        .requestMatchers("/auth/logout").permitAll()
                         .requestMatchers("/partner/**").hasAnyAuthority("ADMIN","CLIENT")
+                        .requestMatchers("/investment/**").hasAnyAuthority("ADMIN","CLIENT")
                         .requestMatchers("/profit-distribution/**").hasAnyAuthority("ADMIN","CLIENT")
                         .requestMatchers("/admin/**").hasAuthority("ADMIN")
                         .requestMatchers("/customer/**").hasAnyAuthority("CLIENT","ADMIN")

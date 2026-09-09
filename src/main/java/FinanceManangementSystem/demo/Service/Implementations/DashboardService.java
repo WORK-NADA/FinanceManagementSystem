@@ -11,6 +11,7 @@ import FinanceManangementSystem.demo.Payloads.ResponseDTO.ResponseProfitDistribu
 import FinanceManangementSystem.demo.Exceptions.InvalidRequestException;
 import FinanceManangementSystem.demo.Repository.ExpenseRepository;
 import FinanceManangementSystem.demo.Repository.PartnerProfitWithdrawalRepository;
+import FinanceManangementSystem.demo.Repository.InvestmentRepository;
 import FinanceManangementSystem.demo.Repository.PurchasePaymentRepository;
 import FinanceManangementSystem.demo.Repository.PurchaseRepository;
 import FinanceManangementSystem.demo.Repository.SalePaymentRepository;
@@ -52,6 +53,7 @@ public class DashboardService implements DashboardServiceInterface {
     private final SalePaymentRepository salePaymentRepo;
     private final PurchasePaymentRepository purchasePaymentRepo;
     private final PartnerProfitWithdrawalRepository partnerProfitWithdrawalRepo;
+    private final InvestmentRepository investmentRepo;
     private final UserRepository userRepo;
     private final CurrentUserService currentUserService;
 
@@ -95,11 +97,15 @@ public class DashboardService implements DashboardServiceInterface {
         BigDecimal totalWithdrawals = partnerProfitWithdrawalRepo.sumWithdrawnByUser(currentUser);
         if (totalWithdrawals == null) totalWithdrawals = BigDecimal.ZERO;
 
+        BigDecimal totalInvestment = investmentRepo.sumTotalInvestmentsByUser(currentUser);
+        if (totalInvestment == null) totalInvestment = BigDecimal.ZERO;
+
         BigDecimal totalBalance = openingBalance.add(totalReceived).subtract(totalPaid).subtract(totalExpenses).subtract(totalWithdrawals);
         // Net Profit = Sales Receipts − Purchase Pays − Expenses (withdrawals are NOT deducted from profit)
         BigDecimal netProfit = totalReceived.subtract(totalPaid).subtract(totalExpenses);
 
         dto.setOpeningBalance(openingBalance);
+        dto.setTotalInvestment(totalInvestment);
         dto.setTotalMoneyReceived(totalReceived);
         dto.setTotalMoneyPaid(totalPaid);
         dto.setTotalExpenses(totalExpenses);

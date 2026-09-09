@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 
@@ -22,7 +23,10 @@ public class JwtUtil {
 
     private Key getSignKey() {
         log.debug("JwtUtil - Generating JWT signing key.");
-        return Keys.hmacShaKeyFor(secret.getBytes());
+        // Must explicitly use UTF_8 to get identical byte arrays on Windows (local)
+        // and Linux (Render Docker container). Without this, signing may use different
+        // platform charsets and token verification will fail intermittently.
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateToken(User user) {

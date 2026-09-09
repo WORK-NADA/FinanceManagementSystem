@@ -39,6 +39,13 @@ public class CorsConfig {
         // Allow credentials
         config.setAllowCredentials(true);
 
+        // Cache CORS preflight (OPTIONS) response for 1 hour to avoid an extra
+        // network round-trip before every POST/PUT/DELETE request
+        config.setMaxAge(3600L);
+
+        // Expose headers the browser is allowed to read from the response
+        config.setExposedHeaders(List.of("Authorization", "Content-Disposition"));
+
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 
