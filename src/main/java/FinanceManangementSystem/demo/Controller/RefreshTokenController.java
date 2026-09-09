@@ -49,4 +49,24 @@ public class RefreshTokenController {
                 )
         );
     }
+
+    /**
+     * Logout: invalidates the server-side refresh token so it cannot be reused
+     * even if it is still stored in the client's localStorage or intercepted.
+     * Called by the frontend before clearing localStorage.
+     */
+    @PostMapping("logout")
+    public ResponseEntity<APIResponse<Void>> logout(@jakarta.validation.Valid @RequestBody RequestRefreshTokenDTO request) {
+        log.info("CONTROLLER - request came in logout...");
+
+        refreshTokenRepo.findByToken(request.getRefreshToken())
+                .ifPresent(token -> {
+                    refreshTokenRepo.delete(token);
+                    log.info("CONTROLLER - refresh token deleted successfully for user: {}",
+                            token.getUser() != null ? token.getUser().getEmail() : "unknown");
+                });
+
+        // Always return 200 even if token was not found (already expired or never existed)
+        return ResponseEntity.ok(new APIResponse<>("Logged out successfully", null));
+    }
 }
